@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Полки — умный холодильник</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect rx='6' width='32' height='32' fill='%23081a24'/%3E%3Cpath d='M10 6h12v20H10z' fill='none' stroke='%237de4d4' stroke-width='2'/%3E%3Ccircle cx='20' cy='16' r='1.4' fill='%237de4d4'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div class="frost"></div>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <p class="eyebrow">GoPlus CamPro · ActionCam</p>
+        <h1>Полки</h1>
+      </div>
+    </div>
+    <div class="cam-chip" id="camChip" data-state="unknown">
+      <span class="led"></span>
+      <span id="camChipText">камера…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <p class="kicker">Средняя версия · распознавание YOLO</p>
+        <h2>Что сейчас в холодильнике</h2>
+        <p class="lead">Снимок с ActionCam, разбор продуктов и список на телефоне. Подтвердите то, что модель нашла — и полки обновятся.</p>
+      </div>
+      <div class="hero-actions">
+        <button class="btn primary" id="scanBtn" type="button">Сканировать камерой</button>
+        <label class="btn ghost" for="uploadInput">Загрузить фото</label>
+        <input id="uploadInput" type="file" accept="image/*" hidden>
+      </div>
+    </section>
+
+    <section class="stats" id="stats">
+      <article><small>Продуктов</small><strong id="statCount">0</strong></article>
+      <article><small>Скоро истечёт</small><strong id="statSoon">0</strong></article>
+      <article><small>Просрочено</small><strong id="statExpired">0</strong></article>
+    </section>
+
+    <div class="layout">
+      <section class="panel" id="inventoryPanel">
+        <div class="panel-head">
+          <h3>Инвентарь</h3>
+          <button class="btn tiny" id="addBtn" type="button">+ вручную</button>
+        </div>
+        <div class="filters">
+          <button class="chip on" data-filter="all" type="button">Все</button>
+          <button class="chip" data-filter="soon" type="button">Срок</button>
+          <button class="chip" data-filter="scan" type="button">Со скана</button>
+        </div>
+        <div id="itemList" class="cards"></div>
+        <p class="empty" id="emptyState">Пока пусто. Сделайте снимок камерой или добавьте молоко вручную.</p>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="panel-head">
+          <h3>Последний кадр</h3>
+          <span class="mono" id="scanMeta">ещё не снимали</span>
+        </div>
+        <div class="stage" id="stage">
+          <img id="scanImage" alt="Снимок холодильника">
+          <svg id="boxes" viewBox="0 0 1 1" preserveAspectRatio="none"></svg>
+          <p class="stage-hint" id="stageHint">Здесь появится фото из холодильника</p>
+        </div>
+        <p class="detect-note" id="detectNote" hidden></p>
+        <div id="detectionList" class="dets"></div>
+        <button class="btn primary wide" id="confirmBtn" type="button" hidden>Добавить выбранное на полки</button>
+      </section>
+    </div>
+  </main>
+
+  <section class="panel settings" id="settings">
+    <div class="panel-head">
+      <h3>Камера и модель</h3>
+      <button class="btn tiny" id="probeBtn" type="button">Проверить связь</button>
+    </div>
+    <form id="settingsForm" class="grid-form">
+      <label>Имя камеры
+        <input name="camera_name" autocomplete="off">
+      </label>
+      <label>IP / хост
+        <input name="camera_host" placeholder="192.168.25.1">
+      </label>
+      <label>Поток MJPEG
+        <input name="stream_url" placeholder="http://192.168.25.1:8080/?action=stream">
+      </label>
+      <label>Снимок
+        <input name="snapshot_url" placeholder="http://192.168.25.1:8080/?action=snapshot">
+      </label>
+      <label>Порог YOLO
+        <input name="confidence" type="number" min="0.05" max="0.95" step="0.05">
+      </label>
+      <label class="check">Только еда и посуда
+        <input name="food_only" type="checkbox">
+      </label>
+      <div class="form-actions">
+        <button class="btn" type="submit">Сохранить</button>
+        <button class="btn ghost" id="modelBtn" type="button">Скачать YOLO</button>
+      </div>
+    </form>
+    <p class="help">
+      GoPlus CamPro поднимает свою сеть <strong>ActionCam_f8160c0282c2</strong>.
+      Ноутбук или Raspberry Pi нужно подключить к Wi‑Fi камеры — тогда адрес почти всегда
+      <span class="mono">192.168.25.1</span>, поток
+      <span class="mono">http://192.168.25.1:8080/?action=stream</span>.
+      Пока сервер сидит в домашнем Wi‑Fi, камера из приложения телефона недоступна: это режим точки доступа.
+    </p>
+  </section>
+
+  <dialog id="itemDialog">
+    <form method="dialog" id="itemForm">
+      <h3 id="dialogTitle">Новый продукт</h3>
+      <input type="hidden" name="id">
+      <label>Название <input name="name" required maxlength="120"></label>
+      <div class="row">
+        <label>Кол-во <input name="quantity" type="number" min="0.1" step="0.1" value="1"></label>
+        <label>Ед. <input name="unit" value="шт"></label>
+      </div>
+      <label>Категория
+        <select name="category">
+          <option value="молочка">Молочка</option>
+          <option value="овощи">Овощи</option>
+          <option value="фрукты">Фрукты</option>
+          <option value="мясо">Мясо</option>
+          <option value="напитки">Напитки</option>
+          <option value="скан">Со скана</option>
+          <option value="другое" selected>Другое</option>
+        </select>
+      </label>
+      <label>Срок годности <input name="expires_on" type="date"></label>
+      <label>Заметка <input name="notes" maxlength="200"></label>
+      <menu>
+        <button class="btn ghost" value="cancel" type="submit">Отмена</button>
+        <button class="btn primary" id="saveItemBtn" value="default" type="submit">Сохранить</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

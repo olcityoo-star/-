@@ -1,0 +1,1 @@
+"""Smart fridge inventory server."""
