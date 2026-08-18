@@ -1,0 +1,18 @@
+services:
+  fridge:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      DETECTOR: ${DETECTOR:-demo}
+      CAMERA_URL: ${CAMERA_URL:-}
+      CAMERA_USER: ${CAMERA_USER:-}
+      CAMERA_PASSWORD: ${CAMERA_PASSWORD:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://127.0.0.1:11434}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - fridge-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  fridge-data:

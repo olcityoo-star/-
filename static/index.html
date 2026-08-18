@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#071018">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Внутри — умный холодильник</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="frost"></div>
+  <header class="top">
+    <div>
+      <p class="eyebrow">Домашняя система</p>
+      <h1>Внутри</h1>
+    </div>
+    <button class="scan-btn" id="scan-camera" type="button">Скан</button>
+  </header>
+
+  <section class="summary" id="summary"></section>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" data-tab="shelf" type="button">Полки</button>
+    <button class="tab" data-tab="scan" type="button">Камера</button>
+    <button class="tab" data-tab="shop" type="button">Купить</button>
+    <button class="tab" data-tab="settings" type="button">Камера и ИИ</button>
+  </nav>
+
+  <main>
+    <section id="shelf" class="panel is-active">
+      <form class="add-row" id="add-form">
+        <input name="name" placeholder="Добавить вручную: молоко, яйца…" required>
+        <button type="submit">+</button>
+      </form>
+      <div id="inventory" class="shelves"></div>
+    </section>
+
+    <section id="scan" class="panel">
+      <div class="camera-card">
+        <div class="viewfinder" id="viewfinder">
+          <p class="hint">Ещё не было скана. Откройте дверь и нажмите «Скан» или загрузите фото.</p>
+        </div>
+        <div class="camera-actions">
+          <button id="scan-demo" type="button">Демо-холодильник</button>
+          <label class="file-btn">Загрузить фото
+            <input id="upload" type="file" accept="image/*" hidden>
+          </label>
+        </div>
+        <ul class="events" id="events"></ul>
+      </div>
+    </section>
+
+    <section id="shop" class="panel">
+      <div id="shopping" class="list"></div>
+    </section>
+
+    <section id="settings" class="panel">
+      <form class="settings" id="settings-form">
+        <label>Как распознавать
+          <select name="detector">
+            <option value="demo">Демо (без камеры и модели)</option>
+            <option value="ollama">Ollama / LLaVA на компьютере</option>
+            <option value="openai">OpenAI Vision (облако)</option>
+            <option value="yolo">YOLO-World локально</option>
+          </select>
+        </label>
+        <label>Адрес камеры (HTTP-снимок или RTSP)
+          <input name="camera_url" placeholder="rtsp://192.168.1.20:554/stream1">
+        </label>
+        <div class="row">
+          <label>Логин камеры
+            <input name="camera_user" autocomplete="username">
+          </label>
+          <label>Пароль
+            <input name="camera_password" type="password" autocomplete="current-password">
+          </label>
+        </div>
+        <label>Ollama URL
+          <input name="ollama_url" placeholder="http://127.0.0.1:11434">
+        </label>
+        <label>Модель Ollama
+          <input name="ollama_model" placeholder="llava">
+        </label>
+        <label>OpenAI ключ
+          <input name="openai_api_key" type="password" placeholder="sk-…">
+        </label>
+        <label>Модель OpenAI
+          <input name="openai_model" placeholder="gpt-4o-mini">
+        </label>
+        <p class="status-line" id="settings-status"></p>
+        <button type="submit">Сохранить</button>
+      </form>
+      <article class="help">
+        <h2>Как поставить камеру</h2>
+        <ol>
+          <li>Не прячьте камеру глубоко в металлический шкаф — Wi‑Fi почти не проходит сквозь стенки. Лучше магнит на внутренней стороне двери или на полке у края.</li>
+          <li>Питание: тонкий USB-кабель вдоль уплотнителя двери или аккумуляторная камера.</li>
+          <li>Снимайте при открытой двери: свет холодильника даёт лучший кадр, меньше конденсата на объективе.</li>
+          <li>В приложении камеры найдите RTSP или URL снимка (Tapo, EZVIZ, Imou, многие «китайские» IP-камеры).</li>
+        </ol>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="/app.js"></script>
+</body>
+</html>

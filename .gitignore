@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+data/*.db
+data/*.db-journal
+data/scans/
+*.pt
+*.onnx
+.DS_Store

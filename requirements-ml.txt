@@ -1,0 +1,5 @@
+# Тяжёлые зависимости только для локального YOLO-World.
+# Ставить отдельно: pip install -r requirements-ml.txt
+ultralytics==8.3.168
+torch==2.7.1
+torchvision==0.22.1

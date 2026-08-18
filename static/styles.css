@@ -1,0 +1,260 @@
+:root {
+  --bg: #071018;
+  --bg-2: #0e1a24;
+  --glass: rgba(18, 38, 48, 0.72);
+  --line: rgba(157, 211, 224, 0.22);
+  --ice: #9ad7e3;
+  --ice-2: #d8f4f8;
+  --mint: #8ee0c8;
+  --warn: #f0c27a;
+  --gone: #f0a0a0;
+  --text: #e7f4f6;
+  --muted: #8aa3ad;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(1200px 500px at 50% -10%, rgba(130, 210, 230, 0.18), transparent 55%),
+    linear-gradient(180deg, #08141c 0%, #071018 100%);
+  color: var(--text);
+}
+
+.frost {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+.top {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 28px 20px 12px;
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+h1 {
+  margin: 4px 0 0;
+  font-size: 34px;
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.scan-btn, .camera-actions button, .file-btn, .settings button, .add-row button {
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: #062027;
+  background: linear-gradient(180deg, var(--ice-2), var(--ice));
+  box-shadow: var(--shadow);
+}
+
+.scan-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+.scan-btn.is-busy {
+  opacity: 0.6;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  padding: 0 20px 16px;
+}
+
+.stat {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 12px;
+}
+
+.stat b { display: block; font-size: 22px; }
+.stat span { color: var(--muted); font-size: 12px; }
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px;
+  overflow-x: auto;
+}
+
+.tab {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab.is-active {
+  color: var(--bg);
+  background: var(--ice);
+  border-color: transparent;
+}
+
+main { padding: 18px 20px 40px; }
+
+.panel { display: none; }
+.panel.is-active { display: block; }
+
+.add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.add-row input, .settings input, .settings select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: #0b1820;
+  color: var(--text);
+  border-radius: 14px;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.add-row button {
+  width: 48px;
+  border-radius: 14px;
+  font-size: 24px;
+}
+
+.shelves { display: grid; gap: 12px; }
+
+.shelf-group h2 {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.card {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 14px;
+  min-height: 120px;
+}
+
+.card.maybe { border-color: rgba(240, 194, 122, 0.5); }
+.card.gone { opacity: 0.45; }
+
+.card .emoji { font-size: 28px; }
+.card h3 { margin: 8px 0 4px; font-size: 16px; }
+.card p { margin: 0; color: var(--muted); font-size: 12px; }
+
+.camera-card, .help, .list .row-item {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 16px;
+}
+
+.viewfinder {
+  position: relative;
+  min-height: 280px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #050b10;
+}
+
+.viewfinder img {
+  width: 100%;
+  display: block;
+}
+
+.boxes {
+  position: absolute;
+  inset: 0;
+}
+
+.box {
+  position: absolute;
+  border: 2px solid var(--mint);
+  border-radius: 8px;
+}
+
+.box span {
+  position: absolute;
+  left: 0;
+  top: -22px;
+  background: var(--mint);
+  color: #062027;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.hint { color: var(--muted); padding: 24px; }
+
+.camera-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.camera-actions button, .file-btn {
+  flex: 1;
+  text-align: center;
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.events, .list { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 8px; }
+.events li, .row-item { color: var(--muted); font-size: 14px; }
+
+.settings { display: grid; gap: 12px; }
+.settings .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.settings button { border-radius: 14px; padding: 12px; }
+.help { margin-top: 18px; }
+.help ol { padding-left: 18px; color: var(--muted); }
+.status-line { color: var(--mint); min-height: 1.2em; }
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: #123;
+  border: 1px solid var(--line);
+  padding: 12px 16px;
+  border-radius: 14px;
+}
+
+@media (max-width: 640px) {
+  .settings .row { grid-template-columns: 1fr; }
+  .scan-btn { width: 64px; height: 64px; }
+}
