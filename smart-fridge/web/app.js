@@ -88,6 +88,9 @@ function renderSnapshot(snapshot) {
         state.snapshotId = snapshot.id;
         el('snapshot').src = `/api/snapshot.jpg?v=${snapshot.id}`;
     }
+    if (snapshot.width && snapshot.height) {
+        frame.style.aspectRatio = `${snapshot.width} / ${snapshot.height}`;
+    }
     frame.classList.add('has-image');
     el('snapshot-time').textContent = timeAgo(snapshot.ts);
 

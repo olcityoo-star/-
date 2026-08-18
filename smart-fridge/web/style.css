@@ -119,21 +119,33 @@ body {
 
 /* --- кадр с камеры --- */
 
+/* Пропорции кадра выставляются из JS по размеру снимка. Это важно: если бы
+   картинка вписывалась в блок другой формы, слой с рамками растянулся бы шире
+   картинки и рамки уехали бы относительно продуктов. */
 .frame {
     position: relative;
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
     border-radius: 12px;
     overflow: hidden;
     background: #0a0e16;
     aspect-ratio: 4 / 3;
-    max-height: 460px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
 }
 .frame img { width: 100%; height: 100%; object-fit: contain; display: none; }
 .frame.has-image img { display: block; }
 .frame.has-image .frame-empty { display: none; }
-.frame-empty { color: var(--muted); font-size: 14px; padding: 20px; text-align: center; }
+.frame-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 20px;
+    text-align: center;
+}
 
 .boxes { position: absolute; inset: 0; pointer-events: none; }
 .box {
