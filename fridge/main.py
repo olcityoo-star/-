@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -12,7 +13,14 @@ from fridge.camera import capture_snapshot, probe_camera
 from fridge.config import CAPTURES_DIR, STATIC_DIR
 from fridge.detect import detect_image, detector_status, ensure_model
 
-app = FastAPI(title="Умный холодильник", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    db.init_db()
+    yield
+
+
+app = FastAPI(title="Умный холодильник", version="0.1.0", lifespan=lifespan)
 
 
 class ItemIn(BaseModel):
@@ -44,11 +52,6 @@ class SettingsIn(BaseModel):
 
 class ConfirmIn(BaseModel):
     detections: list[dict]
-
-
-@app.on_event("startup")
-def _startup() -> None:
-    db.init_db()
 
 
 def _save_jpeg(payload: bytes, prefix: str) -> str:

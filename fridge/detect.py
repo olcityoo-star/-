@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from fridge.config import COCO_NAMES, FOOD_LABELS_RU, MODEL_DIR, MODEL_PATH, MODEL_URLS
+from fridge.config import CATEGORY_BY_CLASS, COCO_NAMES, FOOD_LABELS_RU, MODEL_DIR, MODEL_PATH, MODEL_URLS
 
 _SESSION = None
 _SESSION_ERROR: str | None = None
@@ -133,9 +133,12 @@ def detect_image(
     blob = np.transpose(blob, (2, 0, 1))[None, ...]
 
     session = _load_session()
-    input_name = session.get_inputs()[0].name
+    inp = session.get_inputs()[0]
+    input_name = inp.name
+    if "float16" in (inp.type or ""):
+        blob = blob.astype(np.float16)
     outputs = session.run(None, {input_name: blob})
-    boxes, scores, class_ids = parse_predictions(np.array(outputs[0]))
+    boxes, scores, class_ids = parse_predictions(np.array(outputs[0], dtype=np.float32))
 
     mask = scores >= confidence
     boxes, scores, class_ids = boxes[mask], scores[mask], class_ids[mask]
@@ -173,6 +176,7 @@ def detect_image(
                 "accepted": True,
                 "quantity": 1,
                 "unit": "шт",
+                "category": CATEGORY_BY_CLASS.get(name, "скан"),
                 "expires_on": None,
             }
         )

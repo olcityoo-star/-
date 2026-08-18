@@ -6,7 +6,7 @@ DATA_DIR = Path(os.environ.get("FRIDGE_DATA", str(ROOT / "data")))
 CAPTURES_DIR = DATA_DIR / "captures"
 DB_PATH = Path(os.environ.get("FRIDGE_DB", str(DATA_DIR / "fridge.db")))
 MODEL_DIR = ROOT / "models"
-MODEL_PATH = MODEL_DIR / "yolov8n.onnx"
+MODEL_PATH = MODEL_DIR / "yolov5n.onnx"
 STATIC_DIR = ROOT / "static"
 
 CAMERA_NAME = "ActionCam_f8160c0282c2"
@@ -16,8 +16,7 @@ SNAPSHOT_URL = f"http://{CAMERA_HOST}:8080/?action=snapshot"
 
 # Official Ultralytics nano weights (ONNX). Downloaded on first scan if missing.
 MODEL_URLS = [
-    "https://huggingface.co/Ultralytics/YOLOv8/resolve/main/yolov8n.onnx",
-    "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.onnx",
+    "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5n.onnx",
 ]
 
 DEFAULT_SETTINGS = {
@@ -43,6 +42,26 @@ COCO_NAMES = [
     "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
     "toothbrush",
 ]
+
+CATEGORY_BY_CLASS = {
+    "banana": "фрукты",
+    "apple": "фрукты",
+    "orange": "фрукты",
+    "broccoli": "овощи",
+    "carrot": "овощи",
+    "sandwich": "готовое",
+    "hot dog": "готовое",
+    "pizza": "готовое",
+    "donut": "готовое",
+    "cake": "готовое",
+    "bottle": "напитки",
+    "wine glass": "напитки",
+    "cup": "напитки",
+    "bowl": "посуда",
+    "fork": "посуда",
+    "knife": "посуда",
+    "spoon": "посуда",
+}
 
 FOOD_LABELS_RU = {
     "bottle": "Бутылка",
