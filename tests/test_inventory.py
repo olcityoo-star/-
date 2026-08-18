@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -19,7 +19,7 @@ def _item(name: str, key: str) -> DetectedItem:
 
 
 def _scan(session: Session, items: list[DetectedItem]):
-    scan = Scan(source="test", image_path="x.jpg", created_at=datetime.utcnow())
+    scan = Scan(source="test", image_path="x.jpg", created_at=datetime.now(timezone.utc).replace(tzinfo=None))
     session.add(scan)
     session.flush()
     return apply_scan(session, items, scan)

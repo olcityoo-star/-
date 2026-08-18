@@ -74,8 +74,8 @@ CATALOG: tuple[ProductKind, ...] = (
 def normalize_name(value: str) -> str:
     text = unicodedata.normalize("NFKC", value or "")
     text = text.strip().lower()
-    text = re.sub(r"[«»\"'`.,!?:;()\[\]{}]", " ", text)
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[«»\"'`.,!?:;()\[\]{}]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 

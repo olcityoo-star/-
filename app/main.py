@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
@@ -28,8 +29,16 @@ from .schemas import (
     SettingsOut,
 )
 
-app = FastAPI(title="Умный холодильник", version=__version__)
 STATIC = ROOT / "static"
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Умный холодильник", version=__version__, lifespan=lifespan)
 
 
 def settings_out(settings: Settings) -> SettingsOut:
@@ -59,7 +68,7 @@ def run_scan(session: Session, settings: Settings, image_bgr, source: str, note:
         detections = detector.detect(image_bgr)
     except DetectorError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    stamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     path = save_image(image_bgr, stamp)
     scan = Scan(source=source, image_path=str(path), note=note)
     session.add(scan)
@@ -68,11 +77,6 @@ def run_scan(session: Session, settings: Settings, image_bgr, source: str, note:
     session.flush()
     session.refresh(scan)
     return scan_to_out(scan)
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
 
 
 @app.get("/api/health", response_model=HealthOut)

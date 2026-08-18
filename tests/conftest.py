@@ -21,4 +21,5 @@ init_db()
 
 @pytest.fixture(scope="session")
 def client() -> TestClient:
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client

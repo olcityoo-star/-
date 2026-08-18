@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -12,7 +12,7 @@ from .schemas import DetectedItem, ItemOut, ScanOut
 
 
 def apply_scan(session: Session, detections: list[DetectedItem], scan: Scan) -> list[Event]:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     seen_keys = {item.key for item in detections}
     events: list[Event] = []
 

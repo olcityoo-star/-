@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
@@ -16,7 +16,7 @@ class Scan(Base):
     __tablename__ = "scans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     source: Mapped[str] = mapped_column(String(32), default="upload")
     image_path: Mapped[str] = mapped_column(String(512))
     note: Mapped[str] = mapped_column(Text, default="")
@@ -54,8 +54,8 @@ class Item(Base):
     category: Mapped[str] = mapped_column(String(32), default="other")
     count: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(32), default="in")  # in | maybe_gone | gone | wanted
-    first_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     missed_scans: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[str] = mapped_column(Text, default="")
     wanted: Mapped[int] = mapped_column(Integer, default=0)
@@ -65,7 +65,7 @@ class Event(Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     kind: Mapped[str] = mapped_column(String(32))  # added | removed | seen | wanted
     item_key: Mapped[str] = mapped_column(String(64), default="")
     message: Mapped[str] = mapped_column(Text, default="")
