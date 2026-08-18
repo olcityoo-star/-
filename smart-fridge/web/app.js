@@ -58,13 +58,23 @@ function setAlert(message) {
 
 // --- отрисовка ---------------------------------------------------------
 
+function cameraName(source) {
+    if (!source || source.startsWith('demo:')) return 'демо-камера';
+    if (source.startsWith('file:')) return 'кадр из файла';
+    try {
+        return new URL(source.replace(/^mjpeg:/, '')).host;
+    } catch {
+        return source;
+    }
+}
+
 function renderStatus(status) {
     const ok = !status.last_error;
     const detector = { demo: 'демо-режим', yolo: 'YOLO', vlm: status.detector.model }[status.detector.name]
         || status.detector.name;
     el('status-line').innerHTML =
         `<span class="dot ${ok ? 'ok' : 'bad'}"></span>` +
-        `${detector} · камера ${status.camera.source} · проверено ${timeAgo(status.last_scan_ts)}`;
+        `${detector} · ${cameraName(status.camera.source)} · проверено ${timeAgo(status.last_scan_ts)}`;
     setAlert(status.last_error ? `Не удалось получить данные: ${status.last_error}` : '');
 
     const interval = status.scan_interval > 0
@@ -137,15 +147,17 @@ function renderItem(item) {
     const meta = fresh || `в кадре ${timeAgo(item.last_seen)}`;
     return `
         <div class="item ${cls}">
-            <span class="item-emoji">${item.emoji}</span>
-            <div class="item-body">
-                <div class="item-name" title="${item.label}">${item.label}</div>
-                <div class="item-meta ${cls}">${meta}</div>
+            <div class="item-head">
+                <span class="item-emoji">${item.emoji}</span>
+                <span class="item-name" title="${item.label}">${item.label}</span>
             </div>
-            <div class="counter">
-                <button data-key="${encodeURIComponent(item.key)}" data-count="${item.count - 1}" title="Убрать">−</button>
-                <span class="count">${item.count}</span>
-                <button data-key="${encodeURIComponent(item.key)}" data-count="${item.count + 1}" title="Добавить">+</button>
+            <div class="item-foot">
+                <span class="item-meta ${cls}">${meta}</span>
+                <span class="counter">
+                    <button data-key="${encodeURIComponent(item.key)}" data-count="${item.count - 1}" title="Убрать">−</button>
+                    <span class="count">${item.count}</span>
+                    <button data-key="${encodeURIComponent(item.key)}" data-count="${item.count + 1}" title="Добавить">+</button>
+                </span>
             </div>
         </div>`;
 }

@@ -49,6 +49,8 @@ body {
 }
 
 .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+/* Без min-width строка состояния не сжимается и уезжает под кнопку. */
+.brand > div { min-width: 0; }
 .brand-icon { font-size: 32px; line-height: 1; }
 .brand h1 { font-size: 19px; margin: 0; letter-spacing: -.2px; }
 .brand-sub {
@@ -125,7 +127,6 @@ body {
 .frame {
     position: relative;
     width: 100%;
-    max-width: 780px;
     margin: 0 auto;
     border-radius: 12px;
     overflow: hidden;
@@ -193,34 +194,37 @@ body {
     color: var(--muted);
     margin: 0 0 8px;
 }
-.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 
+/* Название занимает всю ширину карточки, а счётчик уходит на вторую строку:
+   иначе на узкой колонке от «Йогурта» остаётся «Й…». */
 .item {
     background: var(--card-2);
     border: 1px solid var(--line);
     border-radius: 12px;
     padding: 10px 12px;
     display: flex;
-    align-items: center;
-    gap: 10px;
-    position: relative;
+    flex-direction: column;
+    gap: 8px;
 }
-.item-emoji { font-size: 22px; }
-.item-body { min-width: 0; flex: 1; }
+.item-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.item-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.item-emoji { font-size: 20px; line-height: 1; }
 .item-name {
     font-size: 14px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
 }
-.item-meta { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.item-meta { font-size: 11.5px; color: var(--muted); min-width: 0; }
 .item.expired { border-color: rgba(255, 107, 107, .55); }
 .item.soon { border-color: rgba(255, 193, 77, .5); }
 .item-meta.expired { color: var(--danger); }
 .item-meta.soon { color: var(--warn); }
 
-.counter { display: flex; align-items: center; gap: 6px; }
+.counter { display: flex; align-items: center; gap: 6px; flex: none; }
 .counter button {
     width: 24px;
     height: 24px;
