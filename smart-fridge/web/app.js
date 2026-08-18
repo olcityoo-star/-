@@ -173,14 +173,15 @@ function renderShopping(list) {
 const EVENT_TEXT = {
     added: { m: 'появился', f: 'появилась', n: 'появилось', p: 'появились' },
     removed: { m: 'закончился', f: 'закончилась', n: 'закончилось', p: 'закончились' },
-    increased: { m: 'стало больше', f: 'стало больше', n: 'стало больше', p: 'стало больше' },
-    decreased: { m: 'стало меньше', f: 'стало меньше', n: 'стало меньше', p: 'стало меньше' },
 };
 
+// Для изменения количества глагол потребовал бы родительного падежа
+// («йогурта стало больше»), поэтому показываем разницу числом.
 function eventText(event) {
+    if (event.kind === 'increased') return `+${event.delta}, стало ${event.count} шт.`;
+    if (event.kind === 'decreased') return `−${Math.abs(event.delta)}, осталось ${event.count} шт.`;
     const forms = EVENT_TEXT[event.kind];
-    if (!forms) return event.kind;
-    return forms[event.gender] || forms.m;
+    return forms ? forms[event.gender] || forms.m : event.kind;
 }
 
 function renderEvents(events) {
