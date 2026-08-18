@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f1420">
+    <title>Умный холодильник</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧊</text></svg>">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-icon">🧊</span>
+                <div>
+                    <h1>Умный холодильник</h1>
+                    <p class="brand-sub" id="status-line">Подключаюсь…</p>
+                </div>
+            </div>
+            <button class="btn btn-primary" id="scan-btn">
+                <span class="btn-label">Сканировать</span>
+            </button>
+        </header>
+
+        <div id="alert" class="alert hidden"></div>
+
+        <main class="grid">
+            <section class="card camera-card">
+                <div class="card-head">
+                    <h2>Что видит камера</h2>
+                    <span class="chip" id="snapshot-time">—</span>
+                </div>
+                <div class="frame" id="frame">
+                    <img id="snapshot" alt="Кадр из холодильника">
+                    <div class="boxes" id="boxes"></div>
+                    <div class="frame-empty" id="frame-empty">Снимков ещё нет — нажмите «Сканировать»</div>
+                </div>
+                <div class="legend" id="legend"></div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Сейчас в холодильнике</h2>
+                    <span class="chip" id="total-count">0</span>
+                </div>
+                <div id="inventory" class="inventory"></div>
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Пора купить</h2>
+                </div>
+                <ul class="shopping" id="shopping"></ul>
+            </section>
+
+            <section class="card">
+                <div class="card-head">
+                    <h2>Что происходило</h2>
+                </div>
+                <ul class="events" id="events"></ul>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <span id="footer-info">—</span>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

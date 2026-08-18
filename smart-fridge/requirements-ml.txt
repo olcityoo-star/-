@@ -1,0 +1,8 @@
+# Ставится отдельно и только если нужно локальное распознавание или RTSP.
+# На Raspberry Pi установка занимает много времени и около 2 ГБ на диске.
+
+# DETECTOR=yolo
+ultralytics>=8.1
+
+# CAMERA_URL=rtsp://...
+opencv-python-headless>=4.9

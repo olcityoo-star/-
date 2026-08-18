@@ -1,0 +1,10 @@
+# Базовые зависимости: сервер, работа с картинками, HTTP-клиент для камеры.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pillow>=10.0
+requests>=2.31
+python-multipart>=0.0.9
+
+# Для тестов
+pytest>=8.0
+httpx>=0.27
