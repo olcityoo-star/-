@@ -71,6 +71,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "key": event.item_key,
                     "label": product.label,
                     "emoji": product.emoji,
+                    "gender": products.gender(event.item_key),
                     "delta": event.delta,
                     "count": event.count,
                     "source": event.source,

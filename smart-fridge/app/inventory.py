@@ -197,39 +197,32 @@ class InventoryTracker:
         return items
 
     def shopping_list(self) -> list[dict[str, Any]]:
-        """Что стоит купить: закончившиеся базовые продукты и то, что испортилось."""
+        """Что стоит купить: закончившиеся базовые продукты и то, что испортилось.
+
+        Причина отдаётся кодом, а не готовой фразой: текст с правильным родом
+        собирает интерфейс.
+        """
         state = {row["key"]: row for row in self.state()}
         suggestions: list[dict[str, Any]] = []
         for product in products.staples():
             if product.key not in state:
-                suggestions.append(
-                    {
-                        "key": product.key,
-                        "label": product.label,
-                        "emoji": product.emoji,
-                        "reason": "закончился",
-                    }
-                )
+                suggestions.append(_suggestion(product.key, product.label, product.emoji, "missing"))
         for row in state.values():
             if row["freshness"] == EXPIRY_EXPIRED:
-                suggestions.append(
-                    {
-                        "key": row["key"],
-                        "label": row["label"],
-                        "emoji": row["emoji"],
-                        "reason": "истёк срок годности",
-                    }
-                )
+                suggestions.append(_suggestion(row["key"], row["label"], row["emoji"], "expired"))
             elif row["freshness"] == EXPIRY_SOON:
-                suggestions.append(
-                    {
-                        "key": row["key"],
-                        "label": row["label"],
-                        "emoji": row["emoji"],
-                        "reason": "скоро испортится",
-                    }
-                )
+                suggestions.append(_suggestion(row["key"], row["label"], row["emoji"], "expiring"))
         return suggestions
+
+
+def _suggestion(key: str, label: str, emoji: str, reason: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "label": label,
+        "emoji": emoji,
+        "gender": products.gender(key),
+        "reason": reason,
+    }
 
 
 _FRESHNESS_ORDER = {

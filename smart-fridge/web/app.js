@@ -32,16 +32,18 @@ function timeAgo(ts) {
     return `${days} ${plural(days, 'день', 'дня', 'дней')} назад`;
 }
 
+// Формулировки без глаголов в прошедшем времени: одна фраза подходит и молоку,
+// и яйцам, и сметане.
 function freshnessText(item) {
     if (item.expires_in_days === null) return '';
     const days = item.expires_in_days;
     if (days <= 0) {
         const overdue = Math.max(1, Math.round(-days));
-        return `просрочен на ${overdue} ${plural(overdue, 'день', 'дня', 'дней')}`;
+        return `срок вышел ${overdue} ${plural(overdue, 'день', 'дня', 'дней')} назад`;
     }
     if (days < 1) return 'испортится сегодня';
     const left = Math.round(days);
-    return `свежесть ещё ${left} ${plural(left, 'день', 'дня', 'дней')}`;
+    return `осталось ${left} ${plural(left, 'день', 'дня', 'дней')}`;
 }
 
 function setAlert(message) {
@@ -129,7 +131,7 @@ function renderInventory(data) {
 function renderItem(item) {
     const fresh = freshnessText(item);
     const cls = item.freshness === 'expired' ? 'expired' : item.freshness === 'soon' ? 'soon' : '';
-    const meta = fresh || `замечено ${timeAgo(item.last_seen)}`;
+    const meta = fresh || `в кадре ${timeAgo(item.last_seen)}`;
     return `
         <div class="item ${cls}">
             <span class="item-emoji">${item.emoji}</span>
@@ -145,6 +147,12 @@ function renderItem(item) {
         </div>`;
 }
 
+const REASON_TEXT = {
+    missing: { m: 'закончился', f: 'закончилась', n: 'закончилось', p: 'закончились' },
+    expired: { m: 'истёк срок', f: 'истёк срок', n: 'истёк срок', p: 'истёк срок' },
+    expiring: { m: 'скоро испортится', f: 'скоро испортится', n: 'скоро испортится', p: 'скоро испортятся' },
+};
+
 function renderShopping(list) {
     const node = el('shopping');
     if (!list.length) {
@@ -152,16 +160,28 @@ function renderShopping(list) {
         return;
     }
     node.innerHTML = list
-        .map((row) => `<li><span>${row.emoji}</span><span>${row.label}</span><span class="reason">${row.reason}</span></li>`)
+        .map((row) => {
+            const forms = REASON_TEXT[row.reason] || {};
+            const reason = forms[row.gender] || forms.m || row.reason;
+            return `<li><span>${row.emoji}</span><span class="text">${row.label}</span>
+                <span class="reason">${reason}</span></li>`;
+        })
         .join('');
 }
 
+// Формы по роду названия продукта: мужской, женский, средний, множественное число.
 const EVENT_TEXT = {
-    added: 'появился',
-    removed: 'закончился',
-    increased: 'стало больше',
-    decreased: 'стало меньше',
+    added: { m: 'появился', f: 'появилась', n: 'появилось', p: 'появились' },
+    removed: { m: 'закончился', f: 'закончилась', n: 'закончилось', p: 'закончились' },
+    increased: { m: 'стало больше', f: 'стало больше', n: 'стало больше', p: 'стало больше' },
+    decreased: { m: 'стало меньше', f: 'стало меньше', n: 'стало меньше', p: 'стало меньше' },
 };
+
+function eventText(event) {
+    const forms = EVENT_TEXT[event.kind];
+    if (!forms) return event.kind;
+    return forms[event.gender] || forms.m;
+}
 
 function renderEvents(events) {
     const node = el('events');
@@ -172,11 +192,11 @@ function renderEvents(events) {
     node.innerHTML = events
         .slice(0, 25)
         .map((event) => {
-            const text = EVENT_TEXT[event.kind] || event.kind;
-            const hand = event.source === 'manual' ? ' (вручную)' : '';
+            const hand = event.source === 'manual' ? ' вручную' : '';
             return `<li>
                 <span>${event.emoji}</span>
-                <span><b>${event.label}</b> <span class="kind-${event.kind}">${text}${hand}</span></span>
+                <span class="text"><b>${event.label}</b>
+                    <span class="kind-${event.kind}">${eventText(event)}${hand}</span></span>
                 <span class="when">${timeAgo(event.ts)}</span>
             </li>`;
         })

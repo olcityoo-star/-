@@ -227,6 +227,37 @@ def describe(key: str) -> Product:
     )
 
 
+#: Род названия продукта нужен интерфейсу, чтобы писать «молоко появилось»,
+#: а не «молоко появился». m — мужской, f — женский, n — средний, p — множественное.
+_GENDER_OVERRIDES = {
+    "eggs": "p",
+    "broccoli": "f",
+    "potato": "m",
+}
+
+_GENDER_BY_ENDING = {
+    "а": "f",
+    "я": "f",
+    "ь": "f",
+    "о": "n",
+    "е": "n",
+    "ы": "p",
+    "и": "p",
+}
+
+
+def gender(key: str) -> str:
+    """Определяет род названия продукта.
+
+    Каталог небольшой, но модель со свободным словарём приносит произвольные
+    названия, поэтому род угадывается по окончанию, а исключения перечислены явно.
+    """
+    if key in _GENDER_OVERRIDES:
+        return _GENDER_OVERRIDES[key]
+    head = describe(key).label.split()[0].lower() if describe(key).label.strip() else ""
+    return _GENDER_BY_ENDING.get(head[-1:], "m")
+
+
 def category_label(category: str) -> str:
     return CATEGORIES.get(category, CATEGORIES[UNKNOWN_CATEGORY])
 

@@ -123,9 +123,10 @@ def test_upload_endpoint_rejects_garbage(client):
 
 def test_shopping_list_is_returned(client):
     client.post("/api/scan")
-    reasons = {row["key"]: row["reason"] for row in client.get("/api/inventory").json()["shopping_list"]}
-    assert reasons["bread"] == "закончился"  # хлеба в демо-сцене нет
-    assert "milk" not in reasons
+    shopping = {row["key"]: row for row in client.get("/api/inventory").json()["shopping_list"]}
+    assert shopping["bread"]["reason"] == "missing"  # хлеба в демо-сцене нет
+    assert shopping["water"]["gender"] == "f"  # интерфейс напишет «вода закончилась»
+    assert "milk" not in shopping
 
 
 def test_old_snapshots_are_pruned(client, tmp_path):

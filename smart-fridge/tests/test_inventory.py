@@ -181,9 +181,9 @@ def test_shopping_list_suggests_missing_staples_and_spoiled_food(tracker):
     tracker.clock.advance(6)
 
     suggestions = {row["key"]: row["reason"] for row in tracker.shopping_list()}
-    assert suggestions["milk"] == "истёк срок годности"
-    assert suggestions["bread"] == "закончился"
-    assert suggestions["eggs"] == "закончился"
+    assert suggestions["milk"] == "expired"
+    assert suggestions["bread"] == "missing"
+    assert suggestions["eggs"] == "missing"
 
 
 def test_state_sorts_problems_first(tracker):

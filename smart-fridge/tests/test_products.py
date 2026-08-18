@@ -46,6 +46,28 @@ def test_ignored_classes_are_recognised():
     assert not products.is_ignored("молоко")
 
 
+def test_gender_is_detected_for_correct_wording():
+    # «молоко появилось», «сметана появилась», «яйца появились»
+    assert products.gender("milk") == "n"
+    assert products.gender("sour_cream") == "f"
+    assert products.gender("eggs") == "p"
+    assert products.gender("cheese") == "m"
+    assert products.gender("tomato") == "p"
+    assert products.gender("carrot") == "f"
+    assert products.gender("potato") == "m"
+    assert products.gender("broccoli") == "f"
+    assert products.gender("butter") == "n"  # «Масло сливочное» — по первому слову
+
+
+def test_gender_is_guessed_for_unknown_products():
+    assert products.gender(products.normalize("пахлава")) == "f"
+    assert products.gender(products.normalize("рагу")) == "m"
+
+
+def test_every_catalog_product_has_plausible_gender():
+    assert {products.gender(key) for key in products.PRODUCTS} <= {"m", "f", "n", "p"}
+
+
 def test_catalog_is_self_consistent():
     for product in products.PRODUCTS.values():
         assert product.category in products.CATEGORIES

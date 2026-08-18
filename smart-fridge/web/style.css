@@ -237,7 +237,8 @@ body {
     border-radius: 10px;
     padding: 9px 12px;
 }
-.shopping .reason, .events .when { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.shopping .text, .events .text { flex: 1; min-width: 0; }
+.shopping .reason, .events .when { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .events .kind-added { color: var(--accent-2); }
 .events .kind-removed { color: var(--danger); }
 .events .kind-increased { color: var(--accent); }
