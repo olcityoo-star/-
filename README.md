@@ -30,13 +30,25 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 ## Камера GoPlus CamPro
 
-SSID `ActionCam_f8160c0282c2`, gateway обычно `192.168.100.1`.
+SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 
-На многих прошивках порт `8080` открыт, но **HTTP MJPEG нет**
-(`GET /?action=stream` → Empty reply). Приложение GoPlus использует свой протокол.
+PCAPdroid показывает **RTSP на порту 8080** (HTTP MJPEG пустой).
 
-Пока для системы используйте **«Загрузить фото»**.
-Для автоматического скана холодильника удобнее ESP32-CAM / RTSP-камера.
+```bash
+brew install ffmpeg
+# в интерфейсе:
+# поток = rtsp://192.168.100.1:8080/
+```
+
+Проверка вручную:
+
+```bash
+ffprobe -rtsp_transport tcp -i rtsp://192.168.100.1:8080/
+ffmpeg -rtsp_transport tcp -i rtsp://192.168.100.1:8080/ -frames:v 1 -y /tmp/cam.jpg
+```
+
+Если путь другой — кнопка «Найти поток» переберёт типовые RTSP URL.
+Пока поток не найден, используйте **«Загрузить фото»**.
 
 ## Тесты
 

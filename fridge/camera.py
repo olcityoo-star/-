@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import shutil
 import socket
+import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -21,23 +25,10 @@ COMMON_HOSTS = (
 )
 
 SCAN_PORTS = (
-    80,
-    81,
-    443,
-    554,
-    1935,
-    3333,
-    5000,
-    8000,
-    8080,
-    8081,
-    8082,
-    8554,
-    8888,
-    9000,
+    80, 81, 443, 554, 1935, 3333, 5000, 8000, 8080, 8081, 8082, 8554, 8888, 9000,
 )
 
-COMMON_PORTS = (8080, 80, 8081, 81, 8000, 8888)
+COMMON_PORTS = (8080, 80, 8081, 81, 8000, 8888, 554)
 
 PRIORITY_PATHS = (
     "/?action=stream",
@@ -59,6 +50,20 @@ EXTRA_PATHS = (
 
 COMMON_PATHS = PRIORITY_PATHS + EXTRA_PATHS
 
+RTSP_PATHS = (
+    "/",
+    "/live",
+    "/stream",
+    "/h264",
+    "/video",
+    "/cam/realmonitor?channel=1&subtype=0",
+    "/Streaming/Channels/101",
+    "/11",
+    "/12",
+    "/0",
+    "/1",
+)
+
 
 def _client(timeout: float = 1.2) -> httpx.Client:
     return httpx.Client(timeout=timeout, follow_redirects=True)
@@ -74,15 +79,42 @@ def extract_jpeg(buffer: bytes) -> bytes | None:
     return buffer[start : end + 2]
 
 
+def ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None
+
+
+def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
+    if not ffmpeg_available():
+        raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
+    with tempfile.TemporaryDirectory(prefix="fridge-rtsp-") as tmp:
+        out = Path(tmp) / "frame.jpg"
+        cmd = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-rtsp_transport", "tcp",
+            "-i", url,
+            "-frames:v", "1",
+            "-q:v", "2",
+            "-y", str(out),
+        ]
+        try:
+            subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"RTSP таймаут: {url}") from exc
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or b"").decode("utf-8", errors="replace")[:240]
+            raise RuntimeError(f"RTSP ошибка ({url}): {err or exc}") from exc
+        if not out.exists() or out.stat().st_size < 100:
+            raise RuntimeError(f"RTSP не вернул кадр: {url}")
+        return out.read_bytes()
+
+
 def grab_mjpeg_frame(url: str, timeout: float = 3.5) -> bytes:
-    # Prefer tolerant raw GET: many ActionCams break on HEAD / strict HTTP clients.
     try:
         return grab_raw_http_frame(url, timeout=timeout)
     except Exception as raw_exc:  # noqa: BLE001
         try:
             with _client(timeout=timeout) as client:
                 with client.stream("GET", url) as response:
-                    # Some cams return odd status but still stream JPEG bytes.
                     chunks = bytearray()
                     for chunk in response.iter_bytes(chunk_size=4096):
                         chunks.extend(chunk)
@@ -99,7 +131,6 @@ def grab_mjpeg_frame(url: str, timeout: float = 3.5) -> bytes:
 
 
 def grab_raw_http_frame(url: str, timeout: float = 3.5) -> bytes:
-    """Minimal GET over TCP — works when servers reject HEAD or return empty HTTP replies."""
     parsed = urlparse(url)
     host = parsed.hostname
     if not host:
@@ -142,9 +173,12 @@ def grab_raw_http_frame(url: str, timeout: float = 3.5) -> bytes:
 
 
 def grab_url(url: str, timeout: float = 3.5) -> bytes:
-    lowered = url.lower()
+    lowered = url.lower().strip()
+    if lowered.startswith("rtsp://"):
+        return grab_rtsp_frame(url, timeout=max(timeout, 8.0))
     stream_like = any(
-        token in lowered for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream")
+        token in lowered
+        for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream")
     )
     if stream_like:
         return grab_mjpeg_frame(url, timeout=timeout)
@@ -209,6 +243,21 @@ def scan_open_ports(host: str, ports: tuple[int, ...] = SCAN_PORTS) -> list[int]
     return sorted(open_ports)
 
 
+def rtsp_candidate_urls(hostname: str, open_ports: list[int] | None = None) -> list[str]:
+    preferred: list[int] = []
+    source = open_ports if open_ports is not None else [8080, 554]
+    for p in (8080, 554, 8554):
+        if p in source and p not in preferred:
+            preferred.append(p)
+    if not preferred:
+        preferred = [8080, 554]
+    urls: list[str] = []
+    for port in preferred:
+        for path in RTSP_PATHS:
+            _add_url(urls, f"rtsp://{hostname}:{port}{path}")
+    return urls
+
+
 def candidate_urls(
     settings: dict[str, str],
     *,
@@ -216,13 +265,17 @@ def candidate_urls(
     open_ports: list[int] | None = None,
 ) -> list[str]:
     urls: list[str] = []
-    _add_url(urls, settings.get("snapshot_url") or "")
     _add_url(urls, settings.get("stream_url") or "")
+    _add_url(urls, settings.get("snapshot_url") or "")
 
     host = _normalize_host(settings.get("camera_host") or "")
     hostname = host.split(":")[0] if host else ""
     paths = PRIORITY_PATHS if discovery else COMMON_PATHS
     ports = open_ports or list(COMMON_PORTS)
+
+    if hostname:
+        for url in rtsp_candidate_urls(hostname, open_ports):
+            _add_url(urls, url)
 
     if host:
         if ":" in host and not open_ports:
@@ -239,12 +292,11 @@ def candidate_urls(
         for other in COMMON_HOSTS[:2]:
             if other == hostname:
                 continue
-            for port in (8080, 80):
-                for path in PRIORITY_PATHS[:3]:
-                    _add_url(urls, f"http://{other}:{port}{path}")
-        return urls[:50]
+            for url in rtsp_candidate_urls(other, [8080, 554])[:6]:
+                _add_url(urls, url)
+        return urls[:60]
 
-    return urls[:24]
+    return urls[:30]
 
 
 def capture_snapshot(settings: dict[str, str]) -> bytes:
@@ -253,18 +305,20 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
     last_error: Exception | None = None
     for url in urls:
         try:
-            raw = grab_url(url, timeout=2.0)
+            raw = grab_url(url, timeout=8.0 if url.lower().startswith("rtsp://") else 2.5)
             return as_jpeg(raw)
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             errors.append(f"{url}: {exc}")
 
-    detail = "; ".join(errors[:4]) if errors else "нет URL камеры"
+    detail = "; ".join(errors[:5]) if errors else "нет URL камеры"
+    tip = ""
+    if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
+        tip = " Установите ffmpeg: brew install ffmpeg."
     raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
-        "Подключите Mac к Wi‑Fi камеры, укажите IP 192.168.100.1 "
-        "и нажмите «Найти поток». "
-        f"{detail}"
+        "PCAPdroid показал RTSP на :8080 — укажите rtsp://192.168.100.1:8080/ "
+        f"и нажмите «Найти поток».{tip} {detail}"
     ) from last_error
 
 
@@ -279,6 +333,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
             "height": height,
             "bytes": len(jpeg),
             "message": "Камера отвечает, снимок получен",
+            "ffmpeg": ffmpeg_available(),
         }
     except Exception as exc:  # noqa: BLE001
         return {
@@ -287,88 +342,101 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
             "height": None,
             "bytes": 0,
             "message": str(exc),
+            "ffmpeg": ffmpeg_available(),
         }
 
 
 def _probe_one(url: str) -> dict[str, object] | None:
     try:
-        jpeg = as_jpeg(grab_url(url, timeout=3.0))
+        timeout = 8.0 if url.lower().startswith("rtsp://") else 2.5
+        jpeg = as_jpeg(grab_url(url, timeout=timeout))
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         parsed = urlparse(url)
         return {
             "url": url,
             "host": parsed.hostname,
-            "port": parsed.port or (443 if parsed.scheme == "https" else 80),
+            "port": parsed.port or (554 if parsed.scheme == "rtsp" else 80),
             "path": parsed.path + (f"?{parsed.query}" if parsed.query else ""),
             "width": width,
             "height": height,
             "bytes": len(jpeg),
-            "is_stream": any(token in url.lower() for token in ("stream", "mjpeg", "video")),
+            "is_stream": True,
+            "protocol": parsed.scheme,
         }
     except Exception:  # noqa: BLE001
         return None
 
 
-def discover_streams(settings: dict[str, str], limit: int = 5) -> dict[str, object]:
-    """Scan open ports on camera IP, then probe HTTP paths in parallel."""
+def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, object]:
     host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
     hostname = host.split(":")[0]
     open_ports = scan_open_ports(hostname)
-    urls = candidate_urls(settings, discovery=True, open_ports=open_ports or list(COMMON_PORTS))
+    urls = candidate_urls(settings, discovery=True, open_ports=open_ports or [8080, 554])
+    urls.sort(key=lambda u: (0 if u.lower().startswith("rtsp://") else 1, len(u)))
     found: list[dict[str, object]] = []
     tried = 0
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_probe_one, url): url for url in urls}
-        try:
-            for future in as_completed(futures, timeout=10):
-                tried += 1
-                hit = future.result()
-                if hit:
-                    found.append(hit)
-                    if len(found) >= limit:
-                        break
-        except TimeoutError:
-            pass
-        finally:
-            for future in futures:
-                future.cancel()
+    rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:12]
+    http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:20]
+
+    for url in rtsp_urls:
+        tried += 1
+        hit = _probe_one(url)
+        if hit:
+            found.append(hit)
+            if len(found) >= limit:
+                break
+
+    if len(found) < limit and http_urls:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(_probe_one, url): url for url in http_urls}
+            try:
+                for future in as_completed(futures, timeout=8):
+                    tried += 1
+                    hit = future.result()
+                    if hit:
+                        found.append(hit)
+                        if len(found) >= limit:
+                            break
+            except TimeoutError:
+                pass
+            finally:
+                for future in futures:
+                    future.cancel()
 
     best = found[0] if found else None
     suggestion = None
     if best:
         host_name = best["host"]
         port = best["port"]
-        stream = next((row for row in found if row["is_stream"]), best)
-        snap = next((row for row in found if not row["is_stream"]), best)
         suggestion = {
             "camera_host": f"{host_name}:{port}" if port not in (80, None) else str(host_name),
-            "stream_url": stream["url"],
-            "snapshot_url": snap["url"],
+            "stream_url": best["url"],
+            "snapshot_url": best["url"],
         }
 
     if found:
-        message = f"Найдено рабочих HTTP-адресов: {len(found)}. Открытые порты: {open_ports or '—'}"
-    elif open_ports:
         message = (
-            f"На {hostname} открыты порты {open_ports}, но HTTP MJPEG нет "
-            "(GET /?action=stream даёт Empty reply). "
-            "GoPlus CamPro использует закрытый протокол приложения. "
-            "Для умного холодильника сейчас: «Загрузить фото» "
-            "или поставьте ESP32-CAM / камеру с RTSP."
+            f"Найдено потоков: {len(found)} ({found[0]['protocol']}). "
+            f"Открытые порты: {open_ports or '—'}"
+        )
+    elif open_ports:
+        ff = "ffmpeg установлен" if ffmpeg_available() else "ffmpeg НЕ установлен (brew install ffmpeg)"
+        message = (
+            f"На {hostname} открыты порты {open_ports}. "
+            f"HTTP пустой, пробуем RTSP — {ff}. "
+            "Поставьте rtsp://192.168.100.1:8080/ и снова «Найти поток»."
         )
     else:
-        message = (
-            f"Хост {hostname} не отвечает ни на один порт. "
-            "Проверьте, что Mac в Wi‑Fi ActionCam и камера не уснула."
-        )
+        message = f"Хост {hostname} не отвечает. Проверьте Wi‑Fi ActionCam."
 
     return {
         "found": found,
         "tried": tried,
         "open_ports": open_ports,
         "host": hostname,
+        "ffmpeg": ffmpeg_available(),
         "suggestion": suggestion,
         "message": message,
     }

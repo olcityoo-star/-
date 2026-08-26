@@ -119,11 +119,11 @@
       <label>IP / хост
         <input name="camera_host" placeholder="192.168.100.1">
       </label>
-      <label>Поток MJPEG
-        <input name="stream_url" placeholder="http://192.168.100.1:8080/?action=stream">
+      <label>Поток (RTSP/HTTP)
+        <input name="stream_url" placeholder="rtsp://192.168.100.1:8080/">
       </label>
-      <label>Снимок
-        <input name="snapshot_url" placeholder="http://192.168.100.1:8080/?action=snapshot">
+      <label>Снимок / тот же поток
+        <input name="snapshot_url" placeholder="rtsp://192.168.100.1:8080/">
       </label>
       <label>Порог YOLO
         <input name="confidence" type="number" min="0.05" max="0.95" step="0.05">
@@ -142,11 +142,11 @@
       </div>
     </form>
     <p class="help">
-      Ваша ActionCam на <span class="mono">192.168.100.1:8080</span> принимает TCP,
-      но <strong>не отдаёт HTTP MJPEG</strong> (закрытый протокол GoPlus CamPro).
-      Live-скан с этой камеры сейчас недоступен. Рабочий путь:
-      снимайте полки → <strong>«Загрузить фото»</strong> → правите названия → синхронизация/дообучение.
-      Для автоматического скана позже лучше ESP32-CAM или любая камера с RTSP/MJPEG.
+      PCAPdroid показал: GoPlus CamPro ходит на камеру по <strong>RTSP :8080</strong>, не по HTTP.
+      Установите <span class="mono">brew install ffmpeg</span>, в потоке укажите
+      <span class="mono">rtsp://192.168.100.1:8080/</span>, затем <strong>«Найти поток»</strong>.
+      Если путь другой — «Найти поток» переберёт типовые RTSP URL.
+      Пока поток не найден, работает <strong>«Загрузить фото»</strong>.
     </p>
   </section>
 

@@ -15,16 +15,17 @@ def test_candidate_urls_include_alternates():
     from fridge.camera import candidate_urls
 
     urls = candidate_urls({"camera_host": "192.168.42.1", "stream_url": "", "snapshot_url": ""})
+    assert any(u.startswith("rtsp://192.168.42.1:8080/") for u in urls)
     assert any("192.168.42.1:8080/?action=stream" in u for u in urls)
-    assert len(urls) <= 24
+    assert len(urls) <= 30
 
     discovery = candidate_urls(
         {"camera_host": "192.168.100.1", "stream_url": "", "snapshot_url": ""},
         discovery=True,
         open_ports=[8080, 80],
     )
-    assert any("192.168.100.1:8080/?action=stream" in u for u in discovery)
-    assert len(discovery) <= 50
+    assert any(u == "rtsp://192.168.100.1:8080/" for u in discovery)
+    assert len(discovery) <= 60
 
 
 def test_grab_raw_http_frame_reads_jpeg(monkeypatch):
