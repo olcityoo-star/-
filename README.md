@@ -28,9 +28,15 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 На Python 3.14 для OCR: пакет `rapidocr` (уже в `requirements.txt`).
 
-## Камера
+## Камера GoPlus CamPro
 
-SSID `ActionCam_f8160c0282c2`, поток `http://192.168.25.1:8080/?action=stream`.
+SSID `ActionCam_f8160c0282c2`, gateway обычно `192.168.100.1`.
+
+На многих прошивках порт `8080` открыт, но **HTTP MJPEG нет**
+(`GET /?action=stream` → Empty reply). Приложение GoPlus использует свой протокол.
+
+Пока для системы используйте **«Загрузить фото»**.
+Для автоматического скана холодильника удобнее ESP32-CAM / RTSP-камера.
 
 ## Тесты
 

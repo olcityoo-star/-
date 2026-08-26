@@ -352,9 +352,11 @@ def discover_streams(settings: dict[str, str], limit: int = 5) -> dict[str, obje
         message = f"Найдено рабочих HTTP-адресов: {len(found)}. Открытые порты: {open_ports or '—'}"
     elif open_ports:
         message = (
-            f"На {hostname} открыты порты {open_ports}, но HTTP MJPEG не найден. "
-            "У этой GoPlus CamPro часто закрытый протокол приложения — "
-            "тогда используйте «Загрузить фото», либо пришлите список портов."
+            f"На {hostname} открыты порты {open_ports}, но HTTP MJPEG нет "
+            "(GET /?action=stream даёт Empty reply). "
+            "GoPlus CamPro использует закрытый протокол приложения. "
+            "Для умного холодильника сейчас: «Загрузить фото» "
+            "или поставьте ESP32-CAM / камеру с RTSP."
         )
     else:
         message = (
