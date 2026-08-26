@@ -9,3 +9,11 @@ def test_extract_jpeg_from_mjpeg_blob():
 
 def test_extract_jpeg_missing():
     assert extract_jpeg(b"not an image") is None
+
+
+def test_candidate_urls_include_alternates():
+    from fridge.camera import candidate_urls
+
+    urls = candidate_urls({"camera_host": "192.168.42.1", "stream_url": "", "snapshot_url": ""})
+    assert any("192.168.42.1:8080/?action=stream" in u for u in urls)
+    assert any("192.168.25.1:8080/?action=stream" in u for u in urls)

@@ -348,6 +348,36 @@ function bind() {
   });
   $("#addBtn").addEventListener("click", () => openItemDialog(null));
   $("#probeBtn").addEventListener("click", probeCamera);
+  $("#discoverBtn")?.addEventListener("click", async () => {
+    const btn = $("#discoverBtn");
+    btn.disabled = true;
+    btn.textContent = "Ищу…";
+    try {
+      const result = await api("/api/camera/discover", { method: "POST" });
+      if (result.settings) {
+        state.settings = result.settings;
+        const form = $("#settingsForm");
+        for (const [key, value] of Object.entries(result.settings)) {
+          const field = form.elements[key];
+          if (!field) continue;
+          if (field.type === "checkbox") field.checked = value === "1" || value === true;
+          else field.value = value;
+        }
+      }
+      if (result.found?.length) {
+        toast(`Нашёл поток: ${result.suggestion.stream_url}`);
+        setCameraChip(true, "поток найден");
+      } else {
+        toast(result.message);
+        setCameraChip(false, "не найден");
+      }
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Найти поток";
+    }
+  });
   $("#confirmBtn").addEventListener("click", async () => {
     if (!state.scan) return;
     try {

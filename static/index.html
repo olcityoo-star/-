@@ -107,7 +107,10 @@
   <section class="panel settings" id="settings">
     <div class="panel-head">
       <h3>Камера и модель</h3>
-      <button class="btn tiny" id="probeBtn" type="button">Проверить связь</button>
+      <div class="hero-actions">
+        <button class="btn tiny" id="discoverBtn" type="button">Найти поток</button>
+        <button class="btn tiny" id="probeBtn" type="button">Проверить связь</button>
+      </div>
     </div>
     <form id="settingsForm" class="grid-form">
       <label>Имя камеры
@@ -139,8 +142,11 @@
       </div>
     </form>
     <p class="help">
-      Версия 3: после синхронизации кропы с правильными названиями попадают в датасет, классификатор пересобирается автоматически.
-      Чем больше разных ракурсов одного продукта — тем точнее. Для OCR: <span class="mono">pip install rapidocr</span>.
+      Версия 3: после синхронизации кропы с правильными названиями попадают в датасет.
+      Адрес потока у GoPlus CamPro бывает разный — подключите Mac к Wi‑Fi камеры
+      <strong>ActionCam_f8160c0282c2</strong> и нажмите <strong>«Найти поток»</strong>.
+      Если автопоиск пустой, в Терминале: <span class="mono">route -n get default | grep gateway</span>
+      — это IP камеры; подставьте его в «IP / хост» и снова «Найти поток».
     </p>
   </section>
 
