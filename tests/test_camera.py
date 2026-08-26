@@ -1,4 +1,4 @@
-from fridge.camera import extract_jpeg
+from fridge.camera import extract_jpeg, grab_raw_http_frame
 
 
 def test_extract_jpeg_from_mjpeg_blob():
@@ -25,3 +25,33 @@ def test_candidate_urls_include_alternates():
     )
     assert any("192.168.100.1:8080/?action=stream" in u for u in discovery)
     assert len(discovery) <= 50
+
+
+def test_grab_raw_http_frame_reads_jpeg(monkeypatch):
+    jpeg = b"\xff\xd8" + b"frame-bytes" + b"\xff\xd9"
+    payload = b"HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace\r\n\r\n" + jpeg
+
+    class FakeSock:
+        def __init__(self, *_args, **_kwargs):
+            self._data = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def settimeout(self, *_args):
+            return None
+
+        def sendall(self, data):
+            assert data.startswith(b"GET /?action=stream")
+
+        def recv(self, _size):
+            if not self._data:
+                return b""
+            out, self._data = self._data, b""
+            return out
+
+    monkeypatch.setattr("fridge.camera.socket.create_connection", lambda *_a, **_k: FakeSock())
+    assert grab_raw_http_frame("http://192.168.100.1:8080/?action=stream") == jpeg
