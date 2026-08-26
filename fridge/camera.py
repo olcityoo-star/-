@@ -74,22 +74,74 @@ def extract_jpeg(buffer: bytes) -> bytes | None:
     return buffer[start : end + 2]
 
 
-def grab_mjpeg_frame(url: str, timeout: float = 2.0) -> bytes:
-    with _client(timeout=timeout) as client:
-        with client.stream("GET", url) as response:
-            response.raise_for_status()
-            chunks = bytearray()
-            for chunk in response.iter_bytes(chunk_size=4096):
-                chunks.extend(chunk)
-                frame = extract_jpeg(bytes(chunks))
-                if frame:
-                    return frame
-                if len(chunks) > 1_500_000:
-                    break
+def grab_mjpeg_frame(url: str, timeout: float = 3.5) -> bytes:
+    # Prefer tolerant raw GET: many ActionCams break on HEAD / strict HTTP clients.
+    try:
+        return grab_raw_http_frame(url, timeout=timeout)
+    except Exception as raw_exc:  # noqa: BLE001
+        try:
+            with _client(timeout=timeout) as client:
+                with client.stream("GET", url) as response:
+                    # Some cams return odd status but still stream JPEG bytes.
+                    chunks = bytearray()
+                    for chunk in response.iter_bytes(chunk_size=4096):
+                        chunks.extend(chunk)
+                        frame = extract_jpeg(bytes(chunks))
+                        if frame:
+                            return frame
+                        if len(chunks) > 1_500_000:
+                            break
+        except Exception as http_exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"Камера не отдала JPEG-кадр из потока ({raw_exc}; {http_exc})"
+            ) from http_exc
     raise RuntimeError("Камера не отдала JPEG-кадр из потока")
 
 
-def grab_url(url: str, timeout: float = 2.0) -> bytes:
+def grab_raw_http_frame(url: str, timeout: float = 3.5) -> bytes:
+    """Minimal GET over TCP — works when servers reject HEAD or return empty HTTP replies."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise RuntimeError("нет хоста в URL")
+    port = parsed.port or 80
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    request = (
+        f"GET {path} HTTP/1.0\r\n"
+        f"Host: {host}\r\n"
+        "User-Agent: FridgeCam/1.0\r\n"
+        "Accept: */*\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode("ascii")
+
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.settimeout(timeout)
+        sock.sendall(request)
+        chunks = bytearray()
+        while len(chunks) < 2_000_000:
+            try:
+                piece = sock.recv(4096)
+            except socket.timeout as exc:
+                if chunks:
+                    break
+                raise RuntimeError("таймаут чтения потока") from exc
+            if not piece:
+                break
+            chunks.extend(piece)
+            frame = extract_jpeg(bytes(chunks))
+            if frame:
+                return frame
+    frame = extract_jpeg(bytes(chunks))
+    if frame:
+        return frame
+    preview = bytes(chunks[:120]).decode("latin1", errors="replace")
+    raise RuntimeError(f"в ответе нет JPEG (начало: {preview!r})")
+
+
+def grab_url(url: str, timeout: float = 3.5) -> bytes:
     lowered = url.lower()
     stream_like = any(
         token in lowered for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream")
@@ -240,7 +292,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
 
 def _probe_one(url: str) -> dict[str, object] | None:
     try:
-        jpeg = as_jpeg(grab_url(url, timeout=1.0))
+        jpeg = as_jpeg(grab_url(url, timeout=3.0))
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         parsed = urlparse(url)
