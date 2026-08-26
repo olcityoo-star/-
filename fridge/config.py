@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get("FRIDGE_DATA", str(ROOT / "data")))
 CAPTURES_DIR = DATA_DIR / "captures"
+DATASET_DIR = DATA_DIR / "dataset"
+SAMPLES_DIR = DATASET_DIR / "samples"
+GALLERY_PATH = DATASET_DIR / "gallery.npz"
 DB_PATH = Path(os.environ.get("FRIDGE_DB", str(DATA_DIR / "fridge.db")))
 MODEL_DIR = ROOT / "models"
 MODEL_PATH = MODEL_DIR / "yolov5n.onnx"
@@ -26,6 +29,18 @@ DEFAULT_SETTINGS = {
     "snapshot_url": SNAPSHOT_URL,
     "confidence": "0.35",
     "food_only": "1",
+    "custom_threshold": "0.78",
+    "use_custom": "1",
+}
+
+# YOLO classes that usually need a custom fridge label (milk, juice, yogurt…).
+RECLASSIFY_CLASSES = {
+    "bottle",
+    "wine glass",
+    "cup",
+    "bowl",
+    "vase",
+    "refrigerator",
 }
 
 COCO_NAMES = [

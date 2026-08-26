@@ -93,7 +93,7 @@ def get_settings(conn: sqlite3.Connection) -> dict[str, str]:
 
 
 def update_settings(conn: sqlite3.Connection, values: dict[str, Any]) -> dict[str, str]:
-    allowed = set(DEFAULT_SETTINGS) | {"confidence", "food_only"}
+    allowed = set(DEFAULT_SETTINGS)
     for key, value in values.items():
         if key not in allowed:
             continue

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 from fridge import db
 from fridge.camera import capture_snapshot, probe_camera
 from fridge.config import CAPTURES_DIR, STATIC_DIR
+from fridge.dataset import add_sample, add_samples_from_scan, dataset_stats, delete_label
 from fridge.detect import detect_image, detector_status, ensure_model
+from fridge.learn import apply_custom_labels, gallery_status, train_gallery
 from fridge.ocr import enrich_detections, ocr_status
 from fridge.sync import build_sync_plan, shopping_list
 
@@ -22,7 +24,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Умный холодильник", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Умный холодильник", version="0.3.0", lifespan=lifespan)
 
 
 class ItemIn(BaseModel):
@@ -50,12 +52,19 @@ class SettingsIn(BaseModel):
     snapshot_url: str | None = None
     confidence: str | float | None = None
     food_only: str | bool | int | None = None
+    custom_threshold: str | float | None = None
+    use_custom: str | bool | int | None = None
 
 
 class ConfirmIn(BaseModel):
     detections: list[dict]
     remove_item_ids: list[int] = []
     mode: str = "sync"
+    learn: bool = True
+
+
+class LabelIn(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
 
 
 def _save_jpeg(payload: bytes, prefix: str) -> str:
@@ -74,6 +83,17 @@ def _confidence(settings: dict[str, str]) -> float:
 
 def _food_only(settings: dict[str, str]) -> bool:
     return str(settings.get("food_only") or "1").lower() not in {"0", "false", "off", "no"}
+
+
+def _use_custom(settings: dict[str, str]) -> bool:
+    return str(settings.get("use_custom") or "1").lower() not in {"0", "false", "off", "no"}
+
+
+def _custom_threshold(settings: dict[str, str]) -> float:
+    try:
+        return max(0.5, min(0.98, float(settings.get("custom_threshold") or 0.78)))
+    except ValueError:
+        return 0.78
 
 
 def _decorate_scan(scan: dict, error: str | None = None) -> dict:
@@ -96,6 +116,8 @@ def _process_image(jpeg: bytes, settings: dict[str, str], source: str) -> dict:
         detections = []
 
     detections = enrich_detections(jpeg, detections)
+    if _use_custom(settings):
+        detections = apply_custom_labels(jpeg, detections, threshold=_custom_threshold(settings))
 
     with db.session() as conn:
         aliases = db.get_aliases(conn)
@@ -107,6 +129,7 @@ def _process_image(jpeg: bytes, settings: dict[str, str], source: str) -> dict:
 
     scan = _decorate_scan(scan, error)
     scan["sync"] = plan
+    scan["learning"] = gallery_status()
     return scan
 
 
@@ -117,10 +140,11 @@ def health() -> dict:
     status = detector_status()
     return {
         "ok": True,
-        "version": "0.2.0",
+        "version": "0.3.0",
         "camera_name": settings.get("camera_name"),
         "model_ready": status["model_ready"],
         "ocr": ocr_status(),
+        "learning": gallery_status(),
     }
 
 
@@ -133,8 +157,9 @@ def get_settings() -> dict:
 @app.put("/api/settings")
 def put_settings(payload: SettingsIn) -> dict:
     values = payload.model_dump(exclude_none=True)
-    if "food_only" in values:
-        values["food_only"] = "1" if str(values["food_only"]).lower() not in {"0", "false", "off"} else "0"
+    for flag in ("food_only", "use_custom"):
+        if flag in values:
+            values[flag] = "1" if str(values[flag]).lower() not in {"0", "false", "off"} else "0"
     with db.session() as conn:
         return db.update_settings(conn, values)
 
@@ -292,6 +317,17 @@ def confirm_scan(scan_id: int, payload: ConfirmIn) -> dict:
         except KeyError:
             raise HTTPException(404, "Скан не найден") from None
         scan = result["scan"]
+
+    learned: list[dict] = []
+    train_info = None
+    if payload.learn and scan is not None:
+        learned = add_samples_from_scan(scan["image_name"], payload.detections, scan_id=scan_id)
+        if learned:
+            try:
+                train_info = train_gallery()
+            except Exception as exc:  # noqa: BLE001
+                train_info = {"error": str(exc)}
+
     assert scan is not None
     scan = _decorate_scan(scan)
     return {
@@ -301,7 +337,59 @@ def confirm_scan(scan_id: int, payload: ConfirmIn) -> dict:
         "updated": result["updated"],
         "removed": result["removed"],
         "mode": mode,
+        "learned_samples": len(learned),
+        "train": train_info,
+        "learning": gallery_status(),
     }
+
+
+@app.get("/api/learn/status")
+def learn_status() -> dict:
+    return gallery_status()
+
+
+@app.get("/api/learn/dataset")
+def learn_dataset() -> dict:
+    return dataset_stats()
+
+
+@app.post("/api/learn/train")
+def learn_train() -> dict:
+    try:
+        return train_gallery()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/learn/sample")
+async def learn_sample(label: str = Form(...), file: UploadFile = File(...)) -> dict:
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(400, "Пустой файл")
+    try:
+        from fridge.camera import as_jpeg
+
+        jpeg = as_jpeg(payload)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Нужно изображение JPEG/PNG: {exc}") from exc
+    sample = add_sample(label, jpeg, source="manual")
+    try:
+        train = train_gallery()
+    except Exception as exc:  # noqa: BLE001
+        train = {"error": str(exc)}
+    return {"sample": sample, "train": train, "learning": gallery_status()}
+
+
+@app.delete("/api/learn/label")
+def learn_delete_label(payload: LabelIn) -> dict:
+    removed = delete_label(payload.label)
+    train = None
+    try:
+        if dataset_stats()["total"] > 0:
+            train = train_gallery()
+    except Exception as exc:  # noqa: BLE001
+        train = {"error": str(exc)}
+    return {"removed": removed, "train": train, "learning": gallery_status()}
 
 
 @app.get("/api/captures/{name}")

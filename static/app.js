@@ -7,6 +7,7 @@ const state = {
   scan: null,
   filter: "all",
   settings: {},
+  learning: null,
 };
 
 function toast(message) {
@@ -52,7 +53,7 @@ function renderStats() {
   }).length;
   $("#statCount").textContent = state.items.length;
   $("#statSoon").textContent = soon;
-  $("#statShop").textContent = state.shop.length;
+  $("#statLearn").textContent = state.learning?.dataset?.total || state.learning?.samples || 0;
 }
 
 function renderItems() {
@@ -204,13 +205,15 @@ function renderDetections() {
   }
   box.innerHTML = scan.detections.map((det, i) => {
     const action = det.sync_action === "keep" ? "осталось" : "новое";
+    const custom = det.custom_name ? `своё ${Math.round((det.custom_score || 0) * 100)}%` : null;
     const ocr = det.expires_on ? `срок ${det.expires_on}` : (det.ocr_text ? "есть OCR" : "без OCR");
+    const meta = [action, `${Math.round((det.confidence || 0) * 100)}%`, custom, ocr].filter(Boolean).join(" · ");
     return `
     <label class="det">
       <input type="checkbox" data-acc="${i}" ${det.accepted === false ? "" : "checked"}>
       <div>
         <input type="text" data-name="${i}" value="${escapeHtml(det.name)}">
-        <div class="mono subtle">${action} · ${Math.round((det.confidence || 0) * 100)}% · ${ocr}</div>
+        <div class="mono subtle">${meta}</div>
         <input type="date" data-exp="${i}" value="${det.expires_on || ""}">
       </div>
       <span class="mono">${det.sync_action === "keep" ? "✓" : "+"}</span>
@@ -239,6 +242,28 @@ function renderRemoved() {
 async function loadItems() {
   state.items = await api("/api/items");
   renderItems();
+}
+
+async function loadLearn() {
+  state.learning = await api("/api/learn/status");
+  const status = $("#learnStatus");
+  const labels = $("#learnLabels");
+  if (!status || !labels) return;
+  const ds = state.learning.dataset || {};
+  status.textContent = state.learning.ready
+    ? `${state.learning.message}: ${state.learning.samples} образцов, ${state.learning.labels} классов`
+    : `${state.learning.message} Сейчас в датасете: ${ds.total || 0} фото.`;
+  labels.innerHTML = (ds.by_label || []).map((row) => `
+    <article class="card">
+      <div>
+        <h4>${escapeHtml(row.label)}</h4>
+        <p>${row.count} фото</p>
+      </div>
+      <div class="card-actions">
+        <button class="icon-btn" data-forget="${escapeHtml(row.label)}" type="button">забыть</button>
+      </div>
+    </article>`).join("");
+  renderStats();
 }
 
 async function loadShop() {
@@ -336,11 +361,64 @@ function bind() {
           detections: state.scan.detections,
           remove_item_ids: removeIds,
           mode: "sync",
+          learn: true,
         }),
       });
       state.scan = result.scan;
-      await Promise.all([loadItems(), loadShop()]);
-      toast(`Готово: +${result.created.length}, обновлено ${result.updated.length}, убрано ${result.removed.length}`);
+      state.learning = result.learning || state.learning;
+      await Promise.all([loadItems(), loadShop(), loadLearn()]);
+      toast(`Готово: +${result.created.length}, обновлено ${result.updated.length}, убрано ${result.removed.length}, обучено ${result.learned_samples || 0}`);
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
+  $("#learnLabels")?.addEventListener("click", async (event) => {
+    const label = event.target.dataset.forget;
+    if (!label) return;
+    if (!confirm(`Удалить все образцы «${label}»?`)) return;
+    try {
+      const result = await api("/api/learn/label", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label }),
+      });
+      state.learning = result.learning;
+      await loadLearn();
+      toast(`Удалено образцов: ${result.removed}`);
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+
+  $("#trainBtn")?.addEventListener("click", async () => {
+    $("#trainBtn").disabled = true;
+    try {
+      const info = await api("/api/learn/train", { method: "POST" });
+      await loadLearn();
+      toast(`Классификатор собран: ${info.samples} образцов, ${info.labels} классов`);
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      $("#trainBtn").disabled = false;
+    }
+  });
+
+  $("#learnForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const label = form.elements.label.value.trim();
+    const file = form.elements.file.files[0];
+    if (!label || !file) return;
+    const body = new FormData();
+    body.append("label", label);
+    body.append("file", file);
+    try {
+      const result = await api("/api/learn/sample", { method: "POST", body });
+      form.reset();
+      state.learning = result.learning;
+      await loadLearn();
+      toast(`Добавлен образец «${label}»`);
     } catch (err) {
       toast(err.message);
     }
@@ -424,7 +502,9 @@ function bind() {
       stream_url: form.elements.stream_url.value,
       snapshot_url: form.elements.snapshot_url.value,
       confidence: form.elements.confidence.value,
+      custom_threshold: form.elements.custom_threshold?.value,
       food_only: form.elements.food_only.checked ? "1" : "0",
+      use_custom: form.elements.use_custom?.checked ? "1" : "0",
     };
     try {
       state.settings = await api("/api/settings", {
@@ -453,7 +533,7 @@ function bind() {
 
 async function boot() {
   bind();
-  await Promise.all([loadItems(), loadSettings(), loadShop()]);
+  await Promise.all([loadItems(), loadSettings(), loadShop(), loadLearn()]);
   try {
     state.scan = await api("/api/scans/latest");
     renderScan();

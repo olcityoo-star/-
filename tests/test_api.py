@@ -12,13 +12,22 @@ from fridge.main import app
 def client(tmp_path, monkeypatch):
     db_path = tmp_path / "test.db"
     captures = tmp_path / "captures"
+    dataset_dir = tmp_path / "dataset"
     monkeypatch.setattr(db, "DB_PATH", db_path)
     monkeypatch.setattr(db, "CAPTURES_DIR", captures)
     monkeypatch.setattr(db, "DATA_DIR", tmp_path)
     monkeypatch.setattr("fridge.main.CAPTURES_DIR", captures)
     monkeypatch.setattr("fridge.config.DB_PATH", db_path)
     monkeypatch.setattr("fridge.config.CAPTURES_DIR", captures)
+    monkeypatch.setattr("fridge.config.DATASET_DIR", dataset_dir)
+    monkeypatch.setattr("fridge.config.SAMPLES_DIR", dataset_dir / "samples")
+    monkeypatch.setattr("fridge.config.GALLERY_PATH", dataset_dir / "gallery.npz")
+    monkeypatch.setattr("fridge.dataset.DATASET_DIR", dataset_dir)
+    monkeypatch.setattr("fridge.dataset.SAMPLES_DIR", dataset_dir / "samples")
+    monkeypatch.setattr("fridge.dataset.CAPTURES_DIR", captures)
+    monkeypatch.setattr("fridge.learn.GALLERY_PATH", dataset_dir / "gallery.npz")
     captures.mkdir(parents=True, exist_ok=True)
+    dataset_dir.mkdir(parents=True, exist_ok=True)
     db.init_db(db_path)
     return TestClient(app)
 
@@ -137,11 +146,30 @@ def test_upload_scan_without_model(client, monkeypatch):
 
 def test_health_version(client):
     body = client.get("/api/health").json()
-    assert body["version"] == "0.2.0"
+    assert body["version"] == "0.3.0"
+
+
+def test_learn_sample_and_status(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("fridge.dataset.DATASET_DIR", tmp_path)
+    monkeypatch.setattr("fridge.dataset.SAMPLES_DIR", tmp_path / "samples")
+    monkeypatch.setattr("fridge.learn.GALLERY_PATH", tmp_path / "gallery.npz")
+    monkeypatch.setattr("fridge.main.train_gallery", lambda: {"samples": 1, "labels": 1})
+    from fridge import learn as learn_mod
+
+    learn_mod._GALLERY = None
+    res = client.post(
+        "/api/learn/sample",
+        data={"label": "Йогурт"},
+        files={"file": ("y.jpg", _jpeg_bytes(), "image/jpeg")},
+    )
+    assert res.status_code == 200
+    assert res.json()["sample"]["label"] == "Йогурт"
+    stats = client.get("/api/learn/dataset").json()
+    assert stats["total"] >= 1
 
 
 def test_index_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "Полки" in res.text
-    assert "Версия 2" in res.text
+    assert "Версия 3" in res.text

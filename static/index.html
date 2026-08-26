@@ -29,9 +29,9 @@
   <main>
     <section class="hero">
       <div>
-        <p class="kicker">Версия 2 · синхронизация + OCR</p>
+        <p class="kicker">Версия 3 · дообучение на ваших продуктах</p>
         <h2>Что сейчас в холодильнике</h2>
-        <p class="lead">Скан сравнивает кадр с полками: что осталось, что появилось, что пропало. OCR подсказывает срок и название с этикетки.</p>
+        <p class="lead">Переименуйте «Бутылка» в «Молоко» и синхронизируйте — система запомнит вид упаковки и в следующий раз узнает сама.</p>
       </div>
       <div class="hero-actions">
         <button class="btn primary" id="scanBtn" type="button">Сканировать камерой</button>
@@ -44,7 +44,7 @@
     <section class="stats" id="stats">
       <article><small>Продуктов</small><strong id="statCount">0</strong></article>
       <article><small>Скоро истечёт</small><strong id="statSoon">0</strong></article>
-      <article><small>В список покупок</small><strong id="statShop">0</strong></article>
+      <article><small>Образцов обучения</small><strong id="statLearn">0</strong></article>
     </section>
 
     <div class="layout">
@@ -87,6 +87,23 @@
     </div>
   </main>
 
+  <section class="panel learn" id="learn">
+    <div class="panel-head">
+      <h3>Дообучение</h3>
+      <button class="btn tiny" id="trainBtn" type="button">Обучить сейчас</button>
+    </div>
+    <p class="help" id="learnStatus">Загрузка…</p>
+    <div id="learnLabels" class="cards"></div>
+    <form id="learnForm" class="learn-form">
+      <label>Название продукта
+        <input name="label" placeholder="Молоко Простоквашино" required maxlength="120">
+      </label>
+      <label class="btn ghost" for="learnFile">Фото упаковки</label>
+      <input id="learnFile" name="file" type="file" accept="image/*" required hidden>
+      <button class="btn primary" type="submit">Добавить в датасет</button>
+    </form>
+  </section>
+
   <section class="panel settings" id="settings">
     <div class="panel-head">
       <h3>Камера и модель</h3>
@@ -108,18 +125,22 @@
       <label>Порог YOLO
         <input name="confidence" type="number" min="0.05" max="0.95" step="0.05">
       </label>
+      <label>Порог своего классификатора
+        <input name="custom_threshold" type="number" min="0.5" max="0.98" step="0.01">
+      </label>
       <label class="check">Только еда и посуда
         <input name="food_only" type="checkbox">
+      </label>
+      <label class="check">Использовать дообучение
+        <input name="use_custom" type="checkbox">
       </label>
       <div class="form-actions">
         <button class="btn" type="submit">Сохранить</button>
       </div>
     </form>
     <p class="help">
-      Версия 2: после скана сверьте «осталось / новое / пропало». Если переименуете «Бутылка» в «Молоко», система запомнит это.
-      Для OCR сроков установите <span class="mono">pip install rapidocr</span>.
-      GoPlus CamPro: Wi‑Fi <strong>ActionCam_f8160c0282c2</strong>, поток
-      <span class="mono">http://192.168.25.1:8080/?action=stream</span>.
+      Версия 3: после синхронизации кропы с правильными названиями попадают в датасет, классификатор пересобирается автоматически.
+      Чем больше разных ракурсов одного продукта — тем точнее. Для OCR: <span class="mono">pip install rapidocr</span>.
     </p>
   </section>
 

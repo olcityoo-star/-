@@ -6,6 +6,8 @@ __pycache__/
 data/*.db
 data/captures/*
 !data/captures/.gitkeep
+data/dataset/**
+!data/dataset/.gitkeep
 models/*.onnx
 models/*.pt
 *.egg-info/
