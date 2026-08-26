@@ -13,7 +13,7 @@ MODEL_PATH = MODEL_DIR / "yolov5n.onnx"
 STATIC_DIR = ROOT / "static"
 
 CAMERA_NAME = "ActionCam_f8160c0282c2"
-CAMERA_HOST = "192.168.25.1"
+CAMERA_HOST = "192.168.100.1"
 STREAM_URL = f"http://{CAMERA_HOST}:8080/?action=stream"
 SNAPSHOT_URL = f"http://{CAMERA_HOST}:8080/?action=snapshot"
 

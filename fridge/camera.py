@@ -11,6 +11,7 @@ JPEG_EOI = b"\xff\xd9"
 
 # Typical ActionCam / Generalplus / cheap Wi‑Fi cam endpoints.
 COMMON_HOSTS = (
+    "192.168.100.1",
     "192.168.25.1",
     "192.168.42.1",
     "192.168.234.1",
