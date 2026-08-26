@@ -74,11 +74,58 @@ def _jpeg_bytes() -> bytes:
     return buf.getvalue()
 
 
+def test_confirm_scan_creates_items(client, monkeypatch):
+    monkeypatch.setattr("fridge.main.detect_image", lambda *_args, **_kwargs: [
+        {"name": "Яблоко", "accepted": True, "quantity": 2, "unit": "шт", "confidence": 0.9, "bbox": {"x1": 1, "y1": 1, "x2": 10, "y2": 10}}
+    ])
+    monkeypatch.setattr("fridge.main.enrich_detections", lambda _jpeg, dets: dets)
+    scan = client.post("/api/scan/upload", files={"file": ("fridge.jpg", _jpeg_bytes(), "image/jpeg")}).json()
+    confirmed = client.post(
+        f"/api/scans/{scan['id']}/confirm",
+        json={"detections": [{"name": "Яблоко", "accepted": True, "quantity": 2, "unit": "шт"}], "mode": "append"},
+    )
+    assert confirmed.status_code == 200
+    items = confirmed.json()["items"]
+    assert items[0]["name"] == "Яблоко"
+    assert items[0]["source"] == "scan"
+    assert client.get("/api/items").json()[0]["name"] == "Яблоко"
+
+
+def test_sync_removes_missing_and_updates_kept(client, monkeypatch):
+    monkeypatch.setattr("fridge.main.enrich_detections", lambda _jpeg, dets: dets)
+    client.post("/api/items", json={"name": "Яблоко", "quantity": 1, "category": "фрукты"})
+    client.post("/api/items", json={"name": "Молоко", "quantity": 1, "category": "молочка"})
+    monkeypatch.setattr("fridge.main.detect_image", lambda *_args, **_kwargs: [
+        {"name": "Яблоко", "accepted": True, "quantity": 1, "unit": "шт", "confidence": 0.9, "bbox": {"x1": 1, "y1": 1, "x2": 10, "y2": 10}},
+        {"name": "Апельсин", "accepted": True, "quantity": 1, "unit": "шт", "confidence": 0.8, "bbox": {"x1": 12, "y1": 1, "x2": 20, "y2": 10}},
+    ])
+    scan = client.post("/api/scan/upload", files={"file": ("fridge.jpg", _jpeg_bytes(), "image/jpeg")}).json()
+    assert scan["sync"]["summary"]["kept"] == 1
+    assert scan["sync"]["summary"]["added"] == 1
+    assert scan["sync"]["summary"]["removed"] == 1
+    milk_id = scan["sync"]["removed"][0]["id"]
+    kept = scan["sync"]["kept"][0]
+    added = scan["sync"]["added"][0]
+    result = client.post(
+        f"/api/scans/{scan['id']}/confirm",
+        json={
+            "mode": "sync",
+            "remove_item_ids": [milk_id],
+            "detections": [kept, added],
+        },
+    ).json()
+    names = {item["name"] for item in client.get("/api/items").json()}
+    assert names == {"Яблоко", "Апельсин"}
+    assert len(result["removed"]) == 1
+    assert len(result["created"]) == 1
+
+
 def test_upload_scan_without_model(client, monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError("модель не установлена")
 
     monkeypatch.setattr("fridge.main.detect_image", boom)
+    monkeypatch.setattr("fridge.main.enrich_detections", lambda _jpeg, dets: dets)
     res = client.post("/api/scan/upload", files={"file": ("fridge.jpg", _jpeg_bytes(), "image/jpeg")})
     assert res.status_code == 200
     body = res.json()
@@ -88,23 +135,13 @@ def test_upload_scan_without_model(client, monkeypatch):
     assert client.get(body["image_url"]).status_code == 200
 
 
-def test_confirm_scan_creates_items(client, monkeypatch):
-    monkeypatch.setattr("fridge.main.detect_image", lambda *_args, **_kwargs: [
-        {"name": "Яблоко", "accepted": True, "quantity": 2, "unit": "шт", "confidence": 0.9}
-    ])
-    scan = client.post("/api/scan/upload", files={"file": ("fridge.jpg", _jpeg_bytes(), "image/jpeg")}).json()
-    confirmed = client.post(
-        f"/api/scans/{scan['id']}/confirm",
-        json={"detections": [{"name": "Яблоко", "accepted": True, "quantity": 2, "unit": "шт"}]},
-    )
-    assert confirmed.status_code == 200
-    items = confirmed.json()["items"]
-    assert items[0]["name"] == "Яблоко"
-    assert items[0]["source"] == "scan"
-    assert client.get("/api/items").json()[0]["name"] == "Яблоко"
+def test_health_version(client):
+    body = client.get("/api/health").json()
+    assert body["version"] == "0.2.0"
 
 
 def test_index_served(client):
     res = client.get("/")
     assert res.status_code == 200
     assert "Полки" in res.text
+    assert "Версия 2" in res.text

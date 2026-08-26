@@ -29,9 +29,9 @@
   <main>
     <section class="hero">
       <div>
-        <p class="kicker">Средняя версия · распознавание YOLO</p>
+        <p class="kicker">Версия 2 · синхронизация + OCR</p>
         <h2>Что сейчас в холодильнике</h2>
-        <p class="lead">Снимок с ActionCam, разбор продуктов и список на телефоне. Подтвердите то, что модель нашла — и полки обновятся.</p>
+        <p class="lead">Скан сравнивает кадр с полками: что осталось, что появилось, что пропало. OCR подсказывает срок и название с этикетки.</p>
       </div>
       <div class="hero-actions">
         <button class="btn primary" id="scanBtn" type="button">Сканировать камерой</button>
@@ -44,7 +44,7 @@
     <section class="stats" id="stats">
       <article><small>Продуктов</small><strong id="statCount">0</strong></article>
       <article><small>Скоро истечёт</small><strong id="statSoon">0</strong></article>
-      <article><small>Просрочено</small><strong id="statExpired">0</strong></article>
+      <article><small>В список покупок</small><strong id="statShop">0</strong></article>
     </section>
 
     <div class="layout">
@@ -56,10 +56,16 @@
         <div class="filters">
           <button class="chip on" data-filter="all" type="button">Все</button>
           <button class="chip" data-filter="soon" type="button">Срок</button>
+          <button class="chip" data-filter="shop" type="button">Купить</button>
           <button class="chip" data-filter="scan" type="button">Со скана</button>
         </div>
         <div id="itemList" class="cards"></div>
         <p class="empty" id="emptyState">Пока пусто. Сделайте снимок камерой или добавьте молоко вручную.</p>
+        <div class="panel-head sub">
+          <h3>Список покупок</h3>
+        </div>
+        <div id="shopList" class="cards"></div>
+        <p class="empty" id="shopEmpty">Нет срочных покупок.</p>
       </section>
 
       <section class="panel preview-panel">
@@ -73,8 +79,10 @@
           <p class="stage-hint" id="stageHint">Здесь появится фото из холодильника</p>
         </div>
         <p class="detect-note" id="detectNote" hidden></p>
+        <div class="sync-summary" id="syncSummary" hidden></div>
         <div id="detectionList" class="dets"></div>
-        <button class="btn primary wide" id="confirmBtn" type="button" hidden>Добавить выбранное на полки</button>
+        <div id="removedList" class="dets"></div>
+        <button class="btn primary wide" id="confirmBtn" type="button" hidden>Синхронизировать полки</button>
       </section>
     </div>
   </main>
@@ -105,15 +113,13 @@
       </label>
       <div class="form-actions">
         <button class="btn" type="submit">Сохранить</button>
-        <button class="btn ghost" id="probeBtn" type="button">Проверить связь</button>
       </div>
     </form>
     <p class="help">
-      GoPlus CamPro поднимает свою сеть <strong>ActionCam_f8160c0282c2</strong>.
-      Ноутбук или Raspberry Pi нужно подключить к Wi‑Fi камеры — тогда адрес почти всегда
-      <span class="mono">192.168.25.1</span>, поток
+      Версия 2: после скана сверьте «осталось / новое / пропало». Если переименуете «Бутылка» в «Молоко», система запомнит это.
+      Для OCR сроков установите <span class="mono">pip install rapidocr-onnxruntime</span>.
+      GoPlus CamPro: Wi‑Fi <strong>ActionCam_f8160c0282c2</strong>, поток
       <span class="mono">http://192.168.25.1:8080/?action=stream</span>.
-      Пока сервер сидит в домашнем Wi‑Fi, камера из приложения телефона недоступна: это режим точки доступа.
     </p>
   </section>
 

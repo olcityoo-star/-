@@ -71,6 +71,12 @@ def init_db(db_path: Path | None = None) -> None:
                 detections_json TEXT NOT NULL DEFAULT '[]',
                 source TEXT NOT NULL DEFAULT 'camera'
             );
+
+            CREATE TABLE IF NOT EXISTS aliases (
+                raw_key TEXT PRIMARY KEY,
+                preferred TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         existing = {row["key"] for row in conn.execute("SELECT key FROM settings")}
@@ -221,6 +227,163 @@ def latest_scan(conn: sqlite3.Connection) -> dict[str, Any] | None:
     return data
 
 
+def list_scans(conn: sqlite3.Connection, limit: int = 20) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, created_at, image_name, status, source FROM scans ORDER BY id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_aliases(conn: sqlite3.Connection) -> dict[str, str]:
+    rows = conn.execute("SELECT raw_key, preferred FROM aliases").fetchall()
+    return {row["raw_key"]: row["preferred"] for row in rows}
+
+
+def upsert_alias(conn: sqlite3.Connection, raw_key: str, preferred: str) -> None:
+    key = (raw_key or "").strip().lower()
+    value = (preferred or "").strip()
+    if not key or not value:
+        return
+    conn.execute(
+        """
+        INSERT INTO aliases (raw_key, preferred, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(raw_key) DO UPDATE SET preferred = excluded.preferred, updated_at = excluded.updated_at
+        """,
+        (key, value, utcnow()),
+    )
+
+
+def apply_aliases(detections: list[dict[str, Any]], aliases: dict[str, str]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for det in detections:
+        item = dict(det)
+        for key in (item.get("class_name"), item.get("name"), item.get("ocr_name")):
+            if not key:
+                continue
+            preferred = aliases.get(str(key).strip().lower())
+            if preferred:
+                item["name"] = preferred
+                item["alias_applied"] = preferred
+                break
+        result.append(item)
+    return result
+
+
+def confirm_scan(conn: sqlite3.Connection, scan_id: int, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Legacy append-only confirm."""
+    return sync_inventory(conn, scan_id, detections, remove_item_ids=[], mode="append")["created"]
+
+
+def sync_inventory(
+    conn: sqlite3.Connection,
+    scan_id: int,
+    detections: list[dict[str, Any]],
+    remove_item_ids: list[int] | None = None,
+    mode: str = "sync",
+) -> dict[str, Any]:
+    scan = update_scan_detections(conn, scan_id, detections, status="confirmed")
+    if scan is None:
+        raise KeyError("scan not found")
+
+    now = utcnow()
+    created: list[dict[str, Any]] = []
+    updated: list[dict[str, Any]] = []
+    removed: list[int] = []
+    remove_ids = {int(x) for x in (remove_item_ids or [])}
+
+    for det in detections:
+        if not det.get("accepted", True):
+            continue
+        name = str(det.get("name") or "").strip()
+        if not name:
+            continue
+
+        class_name = str(det.get("class_name") or "").strip()
+        ocr_name = str(det.get("ocr_name") or "").strip()
+        from fridge.config import FOOD_LABELS_RU
+
+        ru = FOOD_LABELS_RU.get(class_name, class_name)
+        if name.lower() not in {str(ru).lower(), class_name.lower()}:
+            if class_name:
+                upsert_alias(conn, class_name, name)
+            if ru:
+                upsert_alias(conn, ru, name)
+            if ocr_name and ocr_name.lower() != name.lower():
+                upsert_alias(conn, ocr_name, name)
+
+        match_id = det.get("match_item_id")
+        if mode == "sync" and match_id:
+            patch = {
+                "name": name,
+                "quantity": det.get("quantity") or 1,
+                "unit": det.get("unit") or "шт",
+                "category": det.get("category") or "скан",
+                "source": "scan",
+                "last_scan_id": scan_id,
+                "last_seen_at": now,
+            }
+            if det.get("expires_on"):
+                patch["expires_on"] = det.get("expires_on")
+            if det.get("notes"):
+                patch["notes"] = det.get("notes")
+            item = update_item(conn, int(match_id), patch)
+            if item:
+                updated.append(item)
+            continue
+
+        if mode == "append" or not match_id:
+            # Avoid exact-name duplicates in sync mode when match failed.
+            if mode == "sync":
+                existing = conn.execute(
+                    "SELECT id FROM items WHERE lower(name) = lower(?) LIMIT 1",
+                    (name,),
+                ).fetchone()
+                if existing:
+                    item = update_item(
+                        conn,
+                        int(existing["id"]),
+                        {
+                            "quantity": det.get("quantity") or 1,
+                            "expires_on": det.get("expires_on"),
+                            "last_scan_id": scan_id,
+                            "last_seen_at": now,
+                            "source": "scan",
+                        },
+                    )
+                    if item:
+                        updated.append(item)
+                    continue
+
+            created.append(
+                create_item(
+                    conn,
+                    {
+                        "name": name,
+                        "quantity": det.get("quantity") or 1,
+                        "unit": det.get("unit") or "шт",
+                        "category": det.get("category") or "скан",
+                        "expires_on": det.get("expires_on") or None,
+                        "notes": det.get("notes") or "",
+                        "source": "scan",
+                        "last_scan_id": scan_id,
+                    },
+                )
+            )
+
+    if mode == "sync":
+        for item_id in remove_ids:
+            if delete_item(conn, item_id):
+                removed.append(item_id)
+
+    return {
+        "created": created,
+        "updated": updated,
+        "removed": removed,
+        "scan": get_scan(conn, scan_id),
+    }
+
+
 def update_scan_detections(
     conn: sqlite3.Connection, scan_id: int, detections: list[dict[str, Any]], status: str | None = None
 ) -> dict[str, Any] | None:
@@ -232,37 +395,3 @@ def update_scan_detections(
         (json.dumps(detections, ensure_ascii=False), status or current["status"], scan_id),
     )
     return get_scan(conn, scan_id)
-
-
-def confirm_scan(conn: sqlite3.Connection, scan_id: int, detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    scan = update_scan_detections(conn, scan_id, detections, status="confirmed")
-    if scan is None:
-        raise KeyError("scan not found")
-    created: list[dict[str, Any]] = []
-    now = utcnow()
-    for det in detections:
-        if not det.get("accepted", True):
-            continue
-        name = str(det.get("name") or "").strip()
-        if not name:
-            continue
-        created.append(
-            create_item(
-                conn,
-                {
-                    "name": name,
-                    "quantity": det.get("quantity") or 1,
-                    "unit": det.get("unit") or "шт",
-                    "category": det.get("category") or "скан",
-                    "expires_on": det.get("expires_on") or None,
-                    "notes": det.get("notes") or "",
-                    "source": "scan",
-                    "last_scan_id": scan_id,
-                },
-            )
-        )
-    conn.execute(
-        "UPDATE items SET last_seen_at = ? WHERE last_scan_id = ?",
-        (now, scan_id),
-    )
-    return created

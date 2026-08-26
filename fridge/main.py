@@ -12,6 +12,8 @@ from fridge import db
 from fridge.camera import capture_snapshot, probe_camera
 from fridge.config import CAPTURES_DIR, STATIC_DIR
 from fridge.detect import detect_image, detector_status, ensure_model
+from fridge.ocr import enrich_detections, ocr_status
+from fridge.sync import build_sync_plan, shopping_list
 
 
 @asynccontextmanager
@@ -20,7 +22,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Умный холодильник", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Умный холодильник", version="0.2.0", lifespan=lifespan)
 
 
 class ItemIn(BaseModel):
@@ -52,6 +54,8 @@ class SettingsIn(BaseModel):
 
 class ConfirmIn(BaseModel):
     detections: list[dict]
+    remove_item_ids: list[int] = []
+    mode: str = "sync"
 
 
 def _save_jpeg(payload: bytes, prefix: str) -> str:
@@ -72,16 +76,38 @@ def _food_only(settings: dict[str, str]) -> bool:
     return str(settings.get("food_only") or "1").lower() not in {"0", "false", "off", "no"}
 
 
-def _run_detect(image_bytes: bytes, settings: dict[str, str]) -> tuple[list[dict], str | None]:
+def _decorate_scan(scan: dict, error: str | None = None) -> dict:
+    scan["image_url"] = f"/api/captures/{scan['image_name']}"
+    if error is not None:
+        scan["detect_error"] = error
+    return scan
+
+
+def _process_image(jpeg: bytes, settings: dict[str, str], source: str) -> dict:
+    detections, error = [], None
     try:
         detections = detect_image(
-            image_bytes,
+            jpeg,
             confidence=_confidence(settings),
             food_only=_food_only(settings),
         )
-        return detections, None
-    except Exception as exc:  # noqa: BLE001 — scan should still save the photo
-        return [], str(exc)
+    except Exception as exc:  # noqa: BLE001
+        error = str(exc)
+        detections = []
+
+    detections = enrich_detections(jpeg, detections)
+
+    with db.session() as conn:
+        aliases = db.get_aliases(conn)
+        detections = db.apply_aliases(detections, aliases)
+        items = db.list_items(conn)
+        name = _save_jpeg(jpeg, "cam" if source == "camera" else "upl")
+        scan = db.create_scan(conn, name, detections, source=source)
+        plan = build_sync_plan(items, detections)
+
+    scan = _decorate_scan(scan, error)
+    scan["sync"] = plan
+    return scan
 
 
 @app.get("/api/health")
@@ -91,8 +117,10 @@ def health() -> dict:
     status = detector_status()
     return {
         "ok": True,
+        "version": "0.2.0",
         "camera_name": settings.get("camera_name"),
         "model_ready": status["model_ready"],
+        "ocr": ocr_status(),
     }
 
 
@@ -141,6 +169,14 @@ def remove_item(item_id: int) -> Response:
     return Response(status_code=204)
 
 
+@app.get("/api/shopping")
+def get_shopping() -> dict:
+    with db.session() as conn:
+        items = db.list_items(conn)
+    need = shopping_list(items)
+    return {"items": need, "count": len(need)}
+
+
 @app.get("/api/camera/status")
 def camera_status() -> dict:
     with db.session() as conn:
@@ -168,7 +204,9 @@ def camera_snapshot() -> Response:
 
 @app.get("/api/model")
 def model_info() -> dict:
-    return detector_status()
+    info = detector_status()
+    info["ocr"] = ocr_status()
+    return info
 
 
 @app.post("/api/model/download")
@@ -187,13 +225,7 @@ def scan_camera() -> dict:
         jpeg = capture_snapshot(settings)
     except Exception as extra:  # noqa: BLE001
         raise HTTPException(503, str(extra)) from extra
-    name = _save_jpeg(jpeg, "cam")
-    detections, error = _run_detect(jpeg, settings)
-    with db.session() as conn:
-        scan = db.create_scan(conn, name, detections, source="camera")
-    scan["detect_error"] = error
-    scan["image_url"] = f"/api/captures/{name}"
-    return scan
+    return _process_image(jpeg, settings, source="camera")
 
 
 @app.post("/api/scan/upload")
@@ -207,37 +239,69 @@ async def scan_upload(file: UploadFile = File(...)) -> dict:
         jpeg = as_jpeg(payload)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"Нужно изображение JPEG/PNG: {exc}") from exc
-    name = _save_jpeg(jpeg, "upl")
     with db.session() as conn:
         settings = db.get_settings(conn)
-        detections, error = _run_detect(jpeg, settings)
-        scan = db.create_scan(conn, name, detections, source="upload")
-    scan["detect_error"] = error
-    scan["image_url"] = f"/api/captures/{name}"
-    return scan
+    return _process_image(jpeg, settings, source="upload")
+
+
+@app.get("/api/scans")
+def get_scans() -> list[dict]:
+    with db.session() as conn:
+        rows = db.list_scans(conn)
+    for row in rows:
+        row["image_url"] = f"/api/captures/{row['image_name']}"
+    return rows
 
 
 @app.get("/api/scans/latest")
 def get_latest_scan() -> dict:
     with db.session() as conn:
         scan = db.latest_scan(conn)
+        items = db.list_items(conn)
     if scan is None:
         raise HTTPException(404, "Сканов ещё не было")
-    scan["image_url"] = f"/api/captures/{scan['image_name']}"
+    scan = _decorate_scan(scan)
+    scan["sync"] = build_sync_plan(items, scan.get("detections") or [])
+    return scan
+
+
+@app.get("/api/scans/{scan_id}")
+def get_scan(scan_id: int) -> dict:
+    with db.session() as conn:
+        scan = db.get_scan(conn, scan_id)
+        items = db.list_items(conn)
+    if scan is None:
+        raise HTTPException(404, "Скан не найден")
+    scan = _decorate_scan(scan)
+    scan["sync"] = build_sync_plan(items, scan.get("detections") or [])
     return scan
 
 
 @app.post("/api/scans/{scan_id}/confirm")
 def confirm_scan(scan_id: int, payload: ConfirmIn) -> dict:
+    mode = payload.mode if payload.mode in {"sync", "append"} else "sync"
     with db.session() as conn:
         try:
-            items = db.confirm_scan(conn, scan_id, payload.detections)
+            result = db.sync_inventory(
+                conn,
+                scan_id,
+                payload.detections,
+                remove_item_ids=payload.remove_item_ids,
+                mode=mode,
+            )
         except KeyError:
             raise HTTPException(404, "Скан не найден") from None
-        scan = db.get_scan(conn, scan_id)
+        scan = result["scan"]
     assert scan is not None
-    scan["image_url"] = f"/api/captures/{scan['image_name']}"
-    return {"scan": scan, "items": items}
+    scan = _decorate_scan(scan)
+    return {
+        "scan": scan,
+        "items": result["created"],
+        "created": result["created"],
+        "updated": result["updated"],
+        "removed": result["removed"],
+        "mode": mode,
+    }
 
 
 @app.get("/api/captures/{name}")

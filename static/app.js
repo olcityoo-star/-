@@ -3,6 +3,7 @@ const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 const state = {
   items: [],
+  shop: [],
   scan: null,
   filter: "all",
   settings: {},
@@ -49,13 +50,9 @@ function renderStats() {
     const d = daysUntil(item.expires_on);
     return d !== null && d >= 0 && d <= 3;
   }).length;
-  const expired = state.items.filter((item) => {
-    const d = daysUntil(item.expires_on);
-    return d !== null && d < 0;
-  }).length;
   $("#statCount").textContent = state.items.length;
   $("#statSoon").textContent = soon;
-  $("#statExpired").textContent = expired;
+  $("#statShop").textContent = state.shop.length;
 }
 
 function renderItems() {
@@ -65,6 +62,9 @@ function renderItems() {
     if (state.filter === "soon") {
       const d = daysUntil(item.expires_on);
       return d !== null && d <= 3;
+    }
+    if (state.filter === "shop") {
+      return state.shop.some((row) => row.id === item.id);
     }
     if (state.filter === "scan") return item.source === "scan";
     return true;
@@ -90,6 +90,20 @@ function renderItems() {
   renderStats();
 }
 
+function renderShop() {
+  const list = $("#shopList");
+  const empty = $("#shopEmpty");
+  list.innerHTML = state.shop.map((item) => `
+    <article class="card soon">
+      <div>
+        <div class="tag">${escapeHtml(item.reason || "купить")}</div>
+        <h4>${escapeHtml(item.name)}</h4>
+        <p>${item.quantity || 1} ${escapeHtml(item.unit || "шт")}</p>
+      </div>
+    </article>`).join("");
+  empty.hidden = state.shop.length > 0;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -104,6 +118,25 @@ function setCameraChip(online, text) {
   $("#camChipText").textContent = text;
 }
 
+function syncDetectionsFromPlan() {
+  const scan = state.scan;
+  if (!scan) return;
+  const plan = scan.sync || { kept: [], added: [], removed: [] };
+  const merged = [...(plan.kept || []), ...(plan.added || [])];
+  // Preserve user edits already on detections when re-rendering
+  if (!scan.detections?.length || merged.length) {
+    scan.detections = merged.map((det, index) => ({
+      ...det,
+      id: det.id || index + 1,
+      accepted: det.accepted !== false,
+    }));
+  }
+  scan.removed = (plan.removed || []).map((row) => ({
+    ...row,
+    remove: row.remove !== false,
+  }));
+}
+
 function renderScan() {
   const scan = state.scan;
   const img = $("#scanImage");
@@ -111,15 +144,19 @@ function renderScan() {
   const stage = $("#stage");
   const note = $("#detectNote");
   const confirmBtn = $("#confirmBtn");
+  const summary = $("#syncSummary");
   if (!scan) {
     img.removeAttribute("src");
     stage.classList.remove("has-image");
     svg.innerHTML = "";
     $("#detectionList").innerHTML = "";
+    $("#removedList").innerHTML = "";
     confirmBtn.hidden = true;
     note.hidden = true;
+    summary.hidden = true;
     return;
   }
+  syncDetectionsFromPlan();
   img.src = scan.image_url;
   stage.classList.add("has-image");
   $("#scanMeta").textContent = new Date(scan.created_at).toLocaleString("ru-RU");
@@ -129,23 +166,31 @@ function renderScan() {
   } else {
     note.hidden = true;
   }
+  const plan = scan.sync || { summary: { kept: 0, added: 0, removed: 0 } };
+  summary.hidden = false;
+  summary.innerHTML = `
+    <span class="pill keep">осталось ${plan.summary?.kept || 0}</span>
+    <span class="pill add">новое ${plan.summary?.added || 0}</span>
+    <span class="pill rem">пропало ${plan.summary?.removed || 0}</span>`;
   img.onload = () => drawBoxes(scan, img, svg);
   renderDetections();
-  confirmBtn.hidden = !(scan.detections && scan.detections.length);
+  renderRemoved();
+  confirmBtn.hidden = !(scan.detections?.length || scan.removed?.length);
 }
 
 function drawBoxes(scan, img, svg) {
   const w = img.naturalWidth || 1;
   const h = img.naturalHeight || 1;
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  svg.innerHTML = (scan.detections || []).map((det, i) => {
+  svg.innerHTML = (scan.detections || []).map((det) => {
     if (!det.accepted || !det.bbox) return "";
     const b = det.bbox;
     const bw = Math.max(1, b.x2 - b.x1);
     const bh = Math.max(1, b.y2 - b.y1);
+    const color = det.sync_action === "add" ? "#8af0e0" : "#7de4d4";
     return `<g>
-      <rect x="${b.x1}" y="${b.y1}" width="${bw}" height="${bh}" fill="none" stroke="#7de4d4" stroke-width="${Math.max(2, w / 240)}"/>
-      <text x="${b.x1 + 4}" y="${Math.max(14, b.y1 - 6)}" fill="#7de4d4" font-size="${Math.max(12, w / 42)}" font-family="Manrope">${escapeHtml(det.name)} ${Math.round((det.confidence || 0) * 100)}%</text>
+      <rect x="${b.x1}" y="${b.y1}" width="${bw}" height="${bh}" fill="none" stroke="${color}" stroke-width="${Math.max(2, w / 240)}"/>
+      <text x="${b.x1 + 4}" y="${Math.max(14, b.y1 - 6)}" fill="${color}" font-size="${Math.max(12, w / 42)}" font-family="Manrope">${escapeHtml(det.name)} ${Math.round((det.confidence || 0) * 100)}%</text>
     </g>`;
   }).join("");
 }
@@ -157,17 +202,50 @@ function renderDetections() {
     box.innerHTML = "";
     return;
   }
-  box.innerHTML = scan.detections.map((det, i) => `
+  box.innerHTML = scan.detections.map((det, i) => {
+    const action = det.sync_action === "keep" ? "осталось" : "новое";
+    const ocr = det.expires_on ? `срок ${det.expires_on}` : (det.ocr_text ? "есть OCR" : "без OCR");
+    return `
     <label class="det">
       <input type="checkbox" data-acc="${i}" ${det.accepted === false ? "" : "checked"}>
-      <input type="text" data-name="${i}" value="${escapeHtml(det.name)}">
-      <span class="mono">${Math.round((det.confidence || 0) * 100)}%</span>
+      <div>
+        <input type="text" data-name="${i}" value="${escapeHtml(det.name)}">
+        <div class="mono subtle">${action} · ${Math.round((det.confidence || 0) * 100)}% · ${ocr}</div>
+        <input type="date" data-exp="${i}" value="${det.expires_on || ""}">
+      </div>
+      <span class="mono">${det.sync_action === "keep" ? "✓" : "+"}</span>
+    </label>`;
+  }).join("");
+}
+
+function renderRemoved() {
+  const scan = state.scan;
+  const box = $("#removedList");
+  if (!scan?.removed?.length) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = `<p class="subhead">Похоже, пропало с полок</p>` + scan.removed.map((row, i) => `
+    <label class="det rem-det">
+      <input type="checkbox" data-rem="${i}" ${row.remove === false ? "" : "checked"}>
+      <div>
+        <strong>${escapeHtml(row.name)}</strong>
+        <div class="mono subtle">убрать из инвентаря</div>
+      </div>
+      <span class="mono">−</span>
     </label>`).join("");
 }
 
 async function loadItems() {
   state.items = await api("/api/items");
   renderItems();
+}
+
+async function loadShop() {
+  const data = await api("/api/shopping");
+  state.shop = data.items || [];
+  renderShop();
+  renderStats();
 }
 
 async function loadSettings() {
@@ -209,11 +287,8 @@ async function runScan(kind, file) {
     }
     state.scan = scan;
     renderScan();
-    if (!scan.detections?.length) {
-      toast(scan.detect_error || "На кадре ничего не распознано. Добавьте продукты вручную.");
-    } else {
-      toast(`Нашла ${scan.detections.length} объект(ов). Проверьте подписи.`);
-    }
+    const s = scan.sync?.summary || {};
+    toast(`Скан: осталось ${s.kept || 0}, новое ${s.added || 0}, пропало ${s.removed || 0}`);
   } catch (err) {
     toast(err.message);
   } finally {
@@ -251,14 +326,21 @@ function bind() {
   $("#confirmBtn").addEventListener("click", async () => {
     if (!state.scan) return;
     try {
+      const removeIds = (state.scan.removed || [])
+        .filter((row) => row.remove !== false)
+        .map((row) => row.id);
       const result = await api(`/api/scans/${state.scan.id}/confirm`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ detections: state.scan.detections }),
+        body: JSON.stringify({
+          detections: state.scan.detections,
+          remove_item_ids: removeIds,
+          mode: "sync",
+        }),
       });
       state.scan = result.scan;
-      await loadItems();
-      toast(`На полки добавлено: ${result.items.length}`);
+      await Promise.all([loadItems(), loadShop()]);
+      toast(`Готово: +${result.created.length}, обновлено ${result.updated.length}, убрано ${result.removed.length}`);
     } catch (err) {
       toast(err.message);
     }
@@ -274,16 +356,23 @@ function bind() {
     if (del) {
       if (!confirm("Убрать продукт с полок?")) return;
       await api(`/api/items/${del}`, { method: "DELETE" });
-      await loadItems();
+      await Promise.all([loadItems(), loadShop()]);
     }
   });
 
   $("#detectionList").addEventListener("input", (event) => {
     const acc = event.target.dataset.acc;
     const name = event.target.dataset.name;
+    const exp = event.target.dataset.exp;
     if (acc != null) state.scan.detections[acc].accepted = event.target.checked;
     if (name != null) state.scan.detections[name].name = event.target.value;
+    if (exp != null) state.scan.detections[exp].expires_on = event.target.value || null;
     drawBoxes(state.scan, $("#scanImage"), $("#boxes"));
+  });
+
+  $("#removedList").addEventListener("input", (event) => {
+    const rem = event.target.dataset.rem;
+    if (rem != null) state.scan.removed[rem].remove = event.target.checked;
   });
 
   $$(".filters .chip").forEach((chip) => {
@@ -320,7 +409,7 @@ function bind() {
         body: JSON.stringify(payload),
       });
       $("#itemDialog").close();
-      await loadItems();
+      await Promise.all([loadItems(), loadShop()]);
     } catch (err) {
       toast(err.message);
     }
@@ -364,7 +453,7 @@ function bind() {
 
 async function boot() {
   bind();
-  await Promise.all([loadItems(), loadSettings()]);
+  await Promise.all([loadItems(), loadSettings(), loadShop()]);
   try {
     state.scan = await api("/api/scans/latest");
     renderScan();
