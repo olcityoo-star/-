@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from urllib.parse import urlparse
@@ -19,15 +20,32 @@ COMMON_HOSTS = (
     "192.168.0.1",
 )
 
-COMMON_PORTS = (8080, 80, 8081)
+SCAN_PORTS = (
+    80,
+    81,
+    443,
+    554,
+    1935,
+    3333,
+    5000,
+    8000,
+    8080,
+    8081,
+    8082,
+    8554,
+    8888,
+    9000,
+)
 
-# Prefer MJPEG stream paths first — that is what GoPlus Cam usually exposes.
+COMMON_PORTS = (8080, 80, 8081, 81, 8000, 8888)
+
 PRIORITY_PATHS = (
     "/?action=stream",
     "/?action=snapshot",
     "/snapshot.jpg",
     "/videostream.cgi",
     "/mjpeg",
+    "/",
 )
 
 EXTRA_PATHS = (
@@ -73,7 +91,9 @@ def grab_mjpeg_frame(url: str, timeout: float = 2.0) -> bytes:
 
 def grab_url(url: str, timeout: float = 2.0) -> bytes:
     lowered = url.lower()
-    stream_like = any(token in lowered for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream"))
+    stream_like = any(
+        token in lowered for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream")
+    )
     if stream_like:
         return grab_mjpeg_frame(url, timeout=timeout)
     with _client(timeout=timeout) as client:
@@ -83,7 +103,6 @@ def grab_url(url: str, timeout: float = 2.0) -> bytes:
     jpeg = extract_jpeg(payload)
     if jpeg:
         return jpeg
-    # Some firmwares ignore snapshot and still serve MJPEG.
     return grab_mjpeg_frame(url, timeout=timeout)
 
 
@@ -113,47 +132,66 @@ def _normalize_host(value: str) -> str:
     return value.rstrip("/")
 
 
-def candidate_urls(settings: dict[str, str], *, discovery: bool = False) -> list[str]:
+def tcp_open(host: str, port: int, timeout: float = 0.4) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def scan_open_ports(host: str, ports: tuple[int, ...] = SCAN_PORTS) -> list[int]:
+    open_ports: list[int] = []
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        futures = {pool.submit(tcp_open, host, port): port for port in ports}
+        try:
+            for future in as_completed(futures, timeout=6):
+                port = futures[future]
+                try:
+                    if future.result():
+                        open_ports.append(port)
+                except Exception:  # noqa: BLE001
+                    continue
+        except TimeoutError:
+            pass
+    return sorted(open_ports)
+
+
+def candidate_urls(
+    settings: dict[str, str],
+    *,
+    discovery: bool = False,
+    open_ports: list[int] | None = None,
+) -> list[str]:
     urls: list[str] = []
     _add_url(urls, settings.get("snapshot_url") or "")
     _add_url(urls, settings.get("stream_url") or "")
 
     host = _normalize_host(settings.get("camera_host") or "")
+    hostname = host.split(":")[0] if host else ""
     paths = PRIORITY_PATHS if discovery else COMMON_PATHS
+    ports = open_ports or list(COMMON_PORTS)
 
     if host:
-        if "://" in (settings.get("camera_host") or ""):
-            base = (settings.get("camera_host") or "").rstrip("/")
-            for path in paths:
-                _add_url(urls, f"{base}{path}")
-        elif ":" in host:
+        if ":" in host and not open_ports:
             for path in paths:
                 _add_url(urls, f"http://{host}{path}")
-        else:
-            for port in COMMON_PORTS:
+        elif hostname:
+            for port in ports:
+                if port in {554, 1935, 8554}:
+                    continue
                 for path in paths:
-                    _add_url(urls, f"http://{host}:{port}{path}")
-
-    if discovery:
-        # Keep discovery small and fast: configured host first, then a few known AP gateways.
-        hosts: list[str] = []
-        if host:
-            hosts.append(host.split(":")[0])
-        for item in COMMON_HOSTS:
-            if item not in hosts:
-                hosts.append(item)
-        hosts = hosts[:4]
-        for hostname in hosts:
-            for port in COMMON_PORTS:
-                for path in PRIORITY_PATHS:
                     _add_url(urls, f"http://{hostname}:{port}{path}")
-        return urls[:40]
 
-    # Capture path: still try configured URLs thoroughly, but avoid hundreds of probes.
-    if host and ":" not in host:
-        for port in COMMON_PORTS:
-            for path in COMMON_PATHS:
-                _add_url(urls, f"http://{host}:{port}{path}")
+    if discovery and hostname:
+        for other in COMMON_HOSTS[:2]:
+            if other == hostname:
+                continue
+            for port in (8080, 80):
+                for path in PRIORITY_PATHS[:3]:
+                    _add_url(urls, f"http://{other}:{port}{path}")
+        return urls[:50]
+
     return urls[:24]
 
 
@@ -165,7 +203,7 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
         try:
             raw = grab_url(url, timeout=2.0)
             return as_jpeg(raw)
-        except Exception as exc:  # noqa: BLE001 — collect probe errors for the UI
+        except Exception as exc:  # noqa: BLE001
             last_error = exc
             errors.append(f"{url}: {exc}")
 
@@ -190,7 +228,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
             "bytes": len(jpeg),
             "message": "Камера отвечает, снимок получен",
         }
-    except Exception as exc:  # noqa: BLE001 — status endpoint should not 500
+    except Exception as exc:  # noqa: BLE001
         return {
             "online": False,
             "width": None,
@@ -202,7 +240,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
 
 def _probe_one(url: str) -> dict[str, object] | None:
     try:
-        jpeg = as_jpeg(grab_url(url, timeout=1.2))
+        jpeg = as_jpeg(grab_url(url, timeout=1.0))
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         parsed = urlparse(url)
@@ -216,13 +254,16 @@ def _probe_one(url: str) -> dict[str, object] | None:
             "bytes": len(jpeg),
             "is_stream": any(token in url.lower() for token in ("stream", "mjpeg", "video")),
         }
-    except Exception:  # noqa: BLE001 — discovery should continue
+    except Exception:  # noqa: BLE001
         return None
 
 
 def discover_streams(settings: dict[str, str], limit: int = 5) -> dict[str, object]:
-    """Probe a short prioritized URL list in parallel and stop early."""
-    urls = candidate_urls(settings, discovery=True)
+    """Scan open ports on camera IP, then probe HTTP paths in parallel."""
+    host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
+    hostname = host.split(":")[0]
+    open_ports = scan_open_ports(hostname)
+    urls = candidate_urls(settings, discovery=True, open_ports=open_ports or list(COMMON_PORTS))
     found: list[dict[str, object]] = []
     tried = 0
 
@@ -245,23 +286,35 @@ def discover_streams(settings: dict[str, str], limit: int = 5) -> dict[str, obje
     best = found[0] if found else None
     suggestion = None
     if best:
-        host = best["host"]
+        host_name = best["host"]
         port = best["port"]
         stream = next((row for row in found if row["is_stream"]), best)
         snap = next((row for row in found if not row["is_stream"]), best)
         suggestion = {
-            "camera_host": f"{host}:{port}" if port not in (80, None) else str(host),
+            "camera_host": f"{host_name}:{port}" if port not in (80, None) else str(host_name),
             "stream_url": stream["url"],
             "snapshot_url": snap["url"],
         }
 
+    if found:
+        message = f"Найдено рабочих HTTP-адресов: {len(found)}. Открытые порты: {open_ports or '—'}"
+    elif open_ports:
+        message = (
+            f"На {hostname} открыты порты {open_ports}, но HTTP MJPEG не найден. "
+            "У этой GoPlus CamPro часто закрытый протокол приложения — "
+            "тогда используйте «Загрузить фото», либо пришлите список портов."
+        )
+    else:
+        message = (
+            f"Хост {hostname} не отвечает ни на один порт. "
+            "Проверьте, что Mac в Wi‑Fi ActionCam и камера не уснула."
+        )
+
     return {
         "found": found,
         "tried": tried,
+        "open_ports": open_ports,
+        "host": hostname,
         "suggestion": suggestion,
-        "message": (
-            f"Найдено рабочих адресов: {len(found)}"
-            if found
-            else "Поток не найден за ~10 сек. Mac должен быть в Wi‑Fi ActionCam, IP 192.168.100.1."
-        ),
+        "message": message,
     }

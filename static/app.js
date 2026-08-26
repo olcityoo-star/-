@@ -374,7 +374,8 @@ function bind() {
         toast(`Нашёл поток: ${result.suggestion.stream_url}`);
         setCameraChip(true, "поток найден");
       } else {
-        toast(result.message);
+        const ports = (result.open_ports || []).join(", ") || "нет";
+        toast(`${result.message} (порты: ${ports})`);
         setCameraChip(false, "не найден");
       }
     } catch (err) {

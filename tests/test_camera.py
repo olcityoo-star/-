@@ -21,6 +21,7 @@ def test_candidate_urls_include_alternates():
     discovery = candidate_urls(
         {"camera_host": "192.168.100.1", "stream_url": "", "snapshot_url": ""},
         discovery=True,
+        open_ports=[8080, 80],
     )
     assert any("192.168.100.1:8080/?action=stream" in u for u in discovery)
-    assert len(discovery) <= 40
+    assert len(discovery) <= 50
