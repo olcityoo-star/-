@@ -286,14 +286,18 @@ async function loadSettings() {
 
 async function probeCamera() {
   setCameraChip(null, "проверка…");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const data = await api("/api/camera/status");
+    const data = await api("/api/camera/status", { signal: controller.signal });
     setCameraChip(data.online, data.online ? `${data.width}×${data.height}` : "нет связи");
     if (!data.online) toast(data.message);
     return data;
   } catch (err) {
-    setCameraChip(false, "ошибка");
-    toast(err.message);
+    setCameraChip(false, err.name === "AbortError" ? "таймаут" : "ошибка");
+    if (err.name !== "AbortError") toast(err.message);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -352,8 +356,10 @@ function bind() {
     const btn = $("#discoverBtn");
     btn.disabled = true;
     btn.textContent = "Ищу…";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const result = await api("/api/camera/discover", { method: "POST" });
+      const result = await api("/api/camera/discover", { method: "POST", signal: controller.signal });
       if (result.settings) {
         state.settings = result.settings;
         const form = $("#settingsForm");
@@ -372,8 +378,10 @@ function bind() {
         setCameraChip(false, "не найден");
       }
     } catch (err) {
-      toast(err.message);
+      toast(err.name === "AbortError" ? "Поиск превысил 15 сек. Проверьте Wi‑Fi камеры." : err.message);
+      setCameraChip(false, "таймаут");
     } finally {
+      clearTimeout(timer);
       btn.disabled = false;
       btn.textContent = "Найти поток";
     }
