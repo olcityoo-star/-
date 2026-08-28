@@ -199,8 +199,12 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-rtsp_transport", transport,
+            "-analyzeduration", "5000000",
+            "-probesize", "5000000",
             "-i", url,
+            "-map", "0:v:0",
             "-frames:v", "1",
+            "-an",
             "-q:v", "2",
             "-y", str(out),
         ]
@@ -210,17 +214,12 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
         return out.read_bytes()
 
 
-def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
-    lowered = url.lower()
-    if "action=stream" in lowered:
-        try:
+def grab_rtsp_frame(url: str, timeout: float = 12.0) -> bytes:
+    if not ffmpeg_available():
+        if "action=stream" in url.lower():
             from fridge.goplus_rtsp import capture_jpeg
 
             return capture_jpeg(url, timeout=timeout)
-        except Exception as native_exc:  # noqa: BLE001
-            if not ffmpeg_available():
-                raise RuntimeError(f"RTSP native: {native_exc}") from native_exc
-    if not ffmpeg_available():
         raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
     last_error: Exception | None = None
     for transport in ("tcp", "udp"):
@@ -233,6 +232,13 @@ def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
             last_error = RuntimeError(f"RTSP ошибка ({transport}, {url}): {err or exc}")
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+    if "action=stream" in url.lower():
+        try:
+            from fridge.goplus_rtsp import capture_jpeg
+
+            return capture_jpeg(url, timeout=timeout)
+        except Exception as native_exc:  # noqa: BLE001
+            last_error = native_exc
     raise last_error or RuntimeError(f"RTSP недоступен: {url}")
 
 
@@ -464,11 +470,10 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
     tip = ""
     if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
         tip = " Для RTSP установите ffmpeg: brew install ffmpeg."
-    raise RuntimeError(
+        raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
-        "Нужен login на TCP 6666 + preview, затем HTTP MJPEG "
-        "http://192.168.100.1:8080/?action=stream."
-        f"{wake_note}{tip} {detail}"
+        "RTSP: rtsp://192.168.100.1:8080/?action=stream "
+        f"(ffprobe уже показал mjpeg — проверьте URL в настройках).{wake_note}{tip} {detail}"
     ) from last_error
 
 
