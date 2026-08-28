@@ -45,8 +45,17 @@ SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 cd ~/smart-fridge
 source .venv/bin/activate
 python -m fridge.cam_diag 192.168.100.1
+```
+
+Если `address already in use` на порту 8000:
+
+```bash
+lsof -i :8000
+kill <PID>
 uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 ```
+
+Или сразу другой порт: `--port 8001` → браузер `http://127.0.0.1:8001`.
 
 4. В браузере на том же Mac: «Найти поток» → «Скан с камеры».
 
