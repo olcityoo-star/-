@@ -514,14 +514,24 @@ def candidate_urls(
     return _finalize_urls(urls, limit=60)
 
 
-def capture_snapshot(settings: dict[str, str]) -> bytes:
+def configured_stream_urls(settings: dict[str, str]) -> list[str]:
+    urls: list[str] = []
+    for key in ("stream_url", "snapshot_url"):
+        url = normalize_stream_url((settings.get(key) or "").strip())
+        _add_url(urls, url)
+    return urls
+
+
+def capture_snapshot(settings: dict[str, str], *, urls: list[str] | None = None) -> bytes:
     with activated_camera(settings) as wake:
         errors: list[str] = []
-        urls = candidate_urls(settings, discovery=False)
+        try_list = list(urls or [])
+        if not try_list:
+            try_list = candidate_urls(settings, discovery=False)
         last_error: Exception | None = None
-        for url in urls:
+        for url in try_list:
             try:
-                raw = grab_url(url, timeout=8.0 if url.lower().startswith("rtsp://") else 2.5)
+                raw = grab_url(url, timeout=12.0 if url.lower().startswith("rtsp://") else 2.5)
                 return as_jpeg(raw)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
@@ -536,7 +546,7 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
             "отключите телефон от Wi‑Fi ActionCam и закройте GoPlus CamPro."
         )
     tip = ""
-    if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
+    if not ffmpeg_available() and any(u.startswith("rtsp://") for u in try_list):
         tip = " Для RTSP установите ffmpeg: brew install ffmpeg."
     raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
@@ -546,8 +556,11 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
 
 
 def probe_camera(settings: dict[str, str]) -> dict[str, object]:
+    urls = configured_stream_urls(settings)
+    if not urls:
+        urls = candidate_urls(settings, discovery=False)[:4]
     try:
-        jpeg = capture_snapshot(settings)
+        jpeg = capture_snapshot(settings, urls=urls)
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         return {
@@ -557,6 +570,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
             "bytes": len(jpeg),
             "message": "Камера отвечает, снимок получен",
             "ffmpeg": ffmpeg_available(),
+            "url": urls[0] if urls else None,
         }
     except Exception as exc:  # noqa: BLE001
         return {
@@ -566,6 +580,7 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
             "bytes": 0,
             "message": str(exc),
             "ffmpeg": ffmpeg_available(),
+            "url": urls[0] if urls else None,
         }
 
 

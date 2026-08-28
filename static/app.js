@@ -284,20 +284,40 @@ async function loadSettings() {
   }
 }
 
-async function probeCamera() {
+const PROBE_TIMEOUT_MS = 45000;
+
+async function probeCamera(options = {}) {
+  const { silent = false } = options;
+  const btn = $("#probeBtn");
+  if (btn?.disabled) return null;
   setCameraChip(null, "проверка…");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Проверяю…";
+  }
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
     const data = await api("/api/camera/status", { signal: controller.signal });
     setCameraChip(data.online, data.online ? `${data.width}×${data.height}` : "нет связи");
-    if (!data.online) toast(data.message);
+    if (!data.online && !silent) toast(data.message || "Камера не отвечает");
+    else if (data.online && !silent) toast(`Камера OK: ${data.width}×${data.height}`);
     return data;
   } catch (err) {
     setCameraChip(false, err.name === "AbortError" ? "таймаут" : "ошибка");
-    if (err.name !== "AbortError") toast(err.message);
+    if (!silent) {
+      const msg = err.name === "AbortError"
+        ? "Проверка связи >45 сек. RTSP на GoPlus может занимать до 30 сек — попробуйте ещё раз."
+        : err.message;
+      toast(msg);
+    }
+    return null;
   } finally {
     clearTimeout(timer);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Проверить связь";
+    }
   }
 }
 
@@ -584,7 +604,7 @@ async function boot() {
   } catch {
     renderScan();
   }
-  probeCamera();
+  probeCamera({ silent: true });
 }
 
 boot();

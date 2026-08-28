@@ -61,6 +61,42 @@ def test_normalize_stream_url_action_stream():
     assert normalize_stream_url("http://192.168.1.1/snapshot.jpg").startswith("http://")
 
 
+def test_configured_stream_urls_prefers_saved_rtsp():
+    from fridge.camera import configured_stream_urls
+
+    urls = configured_stream_urls(
+        {
+            "stream_url": "rtsp://192.168.100.1:8080/?action=stream",
+            "snapshot_url": "rtsp://192.168.100.1:8080/?action=stream",
+        }
+    )
+    assert urls == ["rtsp://192.168.100.1:8080/?action=stream"]
+
+
+def test_probe_camera_uses_configured_url(monkeypatch):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from fridge.camera import probe_camera
+
+    buf = BytesIO()
+    Image.new("RGB", (64, 48), (10, 20, 30)).save(buf, format="JPEG")
+    jpeg = buf.getvalue()
+    seen: list[list[str]] = []
+
+    def fake_capture(settings, *, urls=None):
+        seen.append(list(urls or []))
+        return jpeg
+
+    monkeypatch.setattr("fridge.camera.capture_snapshot", fake_capture)
+    monkeypatch.setattr("fridge.camera.ffmpeg_available", lambda: True)
+    result = probe_camera({"stream_url": "rtsp://192.168.100.1:8080/?action=stream"})
+    assert result["online"] is True
+    assert result["width"] == 64
+    assert seen[0] == ["rtsp://192.168.100.1:8080/?action=stream"]
+
+
 def test_grab_raw_http_frame_reads_jpeg(monkeypatch):
     jpeg = b"\xff\xd8" + b"frame-bytes" + b"\xff\xd9"
     payload = b"HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace\r\n\r\n" + jpeg
