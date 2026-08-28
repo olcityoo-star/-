@@ -78,6 +78,23 @@ def _parse_server_port(transport: str) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
+def _depayload_jpeg_rtp(payload: bytes) -> bytes:
+    if not payload:
+        return b""
+    if payload.startswith(JPEG_SOI):
+        return payload
+    if len(payload) < 8:
+        return payload
+    # RFC 2435 RTP/JPEG: 8-byte header, optional Q tables on first fragment only.
+    frag_offset = (payload[1] << 16) | (payload[2] << 8) | payload[3]
+    if frag_offset == 0:
+        q_len = payload[4] + (payload[5] << 8)
+        skip = 8 + q_len
+        if skip <= len(payload):
+            return payload[skip:]
+    return payload[8:]
+
+
 def _rtp_jpeg_from_packets(packets: list[bytes]) -> bytes | None:
     buffer = bytearray()
     for packet in packets:
@@ -86,17 +103,11 @@ def _rtp_jpeg_from_packets(packets: list[bytes]) -> bytes | None:
         payload = packet[12:]
         if not payload:
             continue
-        # RTP/JPEG (RFC 2435): skip 8-byte main header if present
-        offset = 0
-        if payload[0] == 0x00 and len(payload) > 8:
-            offset = 8 + (payload[4] + (payload[5] << 8))
-        chunk = payload[offset:]
-        buffer.extend(chunk)
+        buffer.extend(_depayload_jpeg_rtp(payload))
         frame = extract_jpeg(bytes(buffer))
         if frame:
             return frame
-    frame = extract_jpeg(bytes(buffer))
-    return frame
+    return extract_jpeg(bytes(buffer))
 
 
 def capture_jpeg(url: str, timeout: float = 8.0) -> bytes:

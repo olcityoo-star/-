@@ -193,14 +193,23 @@ def wake_camera(settings: dict[str, str], count: int = 3) -> dict[str, object]:
         return wake
 
 
+def _rtsp_transports(url: str) -> tuple[str, ...]:
+    # GoPlus CamPro sends MJPEG as RTP/UDP; TCP RTSP alone is enough for ffprobe but not frames.
+    if "action=stream" in url.lower():
+        return ("udp", "tcp")
+    return ("tcp", "udp")
+
+
 def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
     with tempfile.TemporaryDirectory(prefix="fridge-rtsp-") as tmp:
         out = Path(tmp) / "frame.jpg"
+        stimeout_us = str(int(max(timeout, 8.0) * 1_000_000))
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-rtsp_transport", transport,
-            "-analyzeduration", "5000000",
-            "-probesize", "5000000",
+            "-stimeout", stimeout_us,
+            "-analyzeduration", "10000000",
+            "-probesize", "10000000",
             "-i", url,
             "-map", "0:v:0",
             "-frames:v", "1",
@@ -208,13 +217,13 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
             "-q:v", "2",
             "-y", str(out),
         ]
-        subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
+        subprocess.run(cmd, check=True, timeout=timeout + 5, capture_output=True)
         if not out.exists() or out.stat().st_size < 100:
             raise RuntimeError(f"RTSP не вернул кадр: {url}")
         return out.read_bytes()
 
 
-def grab_rtsp_frame(url: str, timeout: float = 12.0) -> bytes:
+def grab_rtsp_frame(url: str, timeout: float = 15.0) -> bytes:
     if not ffmpeg_available():
         if "action=stream" in url.lower():
             from fridge.goplus_rtsp import capture_jpeg
@@ -222,7 +231,7 @@ def grab_rtsp_frame(url: str, timeout: float = 12.0) -> bytes:
             return capture_jpeg(url, timeout=timeout)
         raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
     last_error: Exception | None = None
-    for transport in ("tcp", "udp"):
+    for transport in _rtsp_transports(url):
         try:
             return _grab_rtsp_frame(url, timeout=timeout, transport=transport)
         except subprocess.TimeoutExpired:

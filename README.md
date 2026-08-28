@@ -41,9 +41,20 @@ rtsp://192.168.100.1:8080/?action=stream
 Проверка на Mac (только ActionCam Wi‑Fi, телефон отключён):
 
 ```bash
+# RTSP-метаданные (TCP достаточно):
 ffprobe -rtsp_transport tcp -i "rtsp://192.168.100.1:8080/?action=stream"
+
+# Кадр с камеры — видео идёт RTP/UDP, нужен udp (не tcp):
+ffmpeg -rtsp_transport udp -stimeout 10000000 -analyzeduration 10M -probesize 10M \
+  -i "rtsp://192.168.100.1:8080/?action=stream" \
+  -map 0:v:0 -frames:v 1 -an -y /tmp/cam.jpg
+
 python -m fridge.cam_diag 192.168.100.1
 ```
+
+Если `ffmpeg … -rtsp_transport tcp` падает с `Failed reading RTSP data: End of file` —
+это нормально для GoPlus: `ffprobe` видит поток, а кадр берите через **udp** или
+**«Скан с камеры»** в UI (сервер пробует udp → tcp → свой RTSP-клиент).
 
 Если `address already in use` на порту 8000:
 

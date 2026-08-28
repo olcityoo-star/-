@@ -144,7 +144,9 @@
     <p class="help">
       <strong>PCAP:</strong> поток = RTSP
       <span class="mono">rtsp://192.168.100.1:8080/?action=stream</span>
-      (не HTTP curl). К камере — одно устройство: только Mac на ActionCam Wi‑Fi.
+      (не HTTP curl). Кадры — RTP/UDP; для ffmpeg нужен
+      <span class="mono">-rtsp_transport udp</span>, не tcp.
+      К камере — одно устройство: только Mac на ActionCam Wi‑Fi.
       Проверка: <span class="mono">python -m fridge.cam_diag 192.168.100.1</span>.
       Пока не работает — <strong>«Загрузить фото»</strong>.
     </p>
