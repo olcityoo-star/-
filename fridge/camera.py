@@ -8,6 +8,7 @@ import struct
 import subprocess
 import tempfile
 import time
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
@@ -29,7 +30,8 @@ COMMON_HOSTS = (
 )
 
 SCAN_PORTS = (
-    80, 81, 443, 554, 1935, 3333, 5000, 8000, 8080, 8081, 8082, 8554, 8888, 9000,
+    80, 81, 443, 554, 1935, 3333, 5000, 6666, 8000, 8080, 8081, 8082, 8554, 8888, 9000,
+    21600, 22600,
 )
 
 COMMON_PORTS = (8080, 80, 8081, 81, 8000, 8888, 554)
@@ -155,21 +157,52 @@ def _ping_fallback(host: str, count: int = 3) -> dict[str, object]:
         return {"ok": False, "method": "system_ping", "host": host, "error": str(exc)}
 
 
-def wake_camera(settings: dict[str, str], count: int = 3) -> dict[str, object]:
+def _icmp_wakeup_only(host: str, count: int = 3) -> dict[str, object]:
+    try:
+        return _send_icmp_wakeup(host, count=count)
+    except PermissionError:
+        return _ping_fallback(host, count=count)
+    except OSError as exc:
+        fallback = _ping_fallback(host, count=count)
+        if fallback.get("ok"):
+            fallback["icmp_error"] = str(exc)
+            return fallback
+        return {"ok": False, "method": "raw_icmp", "host": host, "error": str(exc)}
+
+
+@contextmanager
+def activated_camera(settings: dict[str, str]):
+    from fridge.goplus import start_preview_session
+
     host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
     hostname = host.split(":")[0]
+    icmp = _icmp_wakeup_only(hostname)
+    if icmp.get("ok"):
+        time.sleep(0.2)
+
+    session, tcp = start_preview_session(hostname)
+    wake: dict[str, object] = {
+        "ok": bool(icmp.get("ok")) or bool(tcp.get("ok")),
+        "icmp": icmp,
+        "tcp": tcp,
+        "host": hostname,
+    }
+    if tcp.get("ok"):
+        wake["method"] = "tcp_6666"
+        wake["message"] = "preview started on TCP 6666"
+    elif icmp.get("ok"):
+        wake["method"] = icmp.get("method")
     try:
-        result = _send_icmp_wakeup(hostname, count=count)
-    except PermissionError:
-        result = _ping_fallback(hostname, count=count)
-    except OSError as exc:
-        result = {"ok": False, "method": "raw_icmp", "host": hostname, "error": str(exc)}
-        fallback = _ping_fallback(hostname, count=count)
-        if fallback.get("ok"):
-            result = fallback
-    if result.get("ok"):
-        time.sleep(0.35)
-    return result
+        yield wake
+    finally:
+        if session:
+            session.close()
+
+
+def wake_camera(settings: dict[str, str], count: int = 3) -> dict[str, object]:
+    with activated_camera(settings) as wake:
+        wake["sent"] = count
+        return wake
 
 
 def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
@@ -411,34 +444,34 @@ def candidate_urls(
 
 
 def capture_snapshot(settings: dict[str, str]) -> bytes:
-    wake = wake_camera(settings)
-    errors: list[str] = []
-    urls = candidate_urls(settings, discovery=False)
-    last_error: Exception | None = None
-    for url in urls:
-        try:
-            raw = grab_url(url, timeout=8.0 if url.lower().startswith("rtsp://") else 2.5)
-            return as_jpeg(raw)
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            errors.append(f"{url}: {exc}")
+    with activated_camera(settings) as wake:
+        errors: list[str] = []
+        urls = candidate_urls(settings, discovery=False)
+        last_error: Exception | None = None
+        for url in urls:
+            try:
+                raw = grab_url(url, timeout=8.0 if url.lower().startswith("rtsp://") else 2.5)
+                return as_jpeg(raw)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                errors.append(f"{url}: {exc}")
 
     detail = "; ".join(errors[:5]) if errors else "нет URL камеры"
+    tcp = wake.get("tcp") if isinstance(wake.get("tcp"), dict) else {}
     wake_note = ""
-    if not wake.get("ok"):
+    if not tcp.get("ok"):
         wake_note = (
-            " Пробуждение ICMP не удалось — попробуйте "
-            "sudo uvicorn fridge.main:app --host 0.0.0.0 --port 8000 "
-            "или откройте GoPlus CamPro на телефоне."
+            " TCP :6666 не ответил — проверьте "
+            "nc -zv 192.168.100.1 6666 и закройте GoPlus CamPro на телефоне."
         )
     tip = ""
     if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
         tip = " Для RTSP установите ffmpeg: brew install ffmpeg."
     raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
-        "Сначала нужен ICMP wakeup, затем HTTP MJPEG: "
-        "http://192.168.100.1:8080/?action=stream — "
-        f"нажмите «Найти поток».{wake_note}{tip} {detail}"
+        "Нужен login на TCP 6666 + preview, затем HTTP MJPEG "
+        "http://192.168.100.1:8080/?action=stream."
+        f"{wake_note}{tip} {detail}"
     ) from last_error
 
 
@@ -491,41 +524,42 @@ def _probe_one(url: str) -> dict[str, object] | None:
 def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, object]:
     host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
     hostname = host.split(":")[0]
-    wake = wake_camera(settings)
-    open_ports = scan_open_ports(hostname)
-    urls = candidate_urls(settings, discovery=True, open_ports=open_ports or [8080, 554])
-    urls.sort(key=lambda u: (1 if u.lower().startswith("rtsp://") else 0, len(u)))
-    found: list[dict[str, object]] = []
-    tried = 0
 
-    http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:24]
-    rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:16]
+    with activated_camera(settings) as wake:
+        open_ports = scan_open_ports(hostname)
+        urls = candidate_urls(settings, discovery=True, open_ports=open_ports or [8080, 554, 6666])
+        urls.sort(key=lambda u: (1 if u.lower().startswith("rtsp://") else 0, len(u)))
+        found: list[dict[str, object]] = []
+        tried = 0
 
-    if http_urls:
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            futures = {pool.submit(_probe_one, url): url for url in http_urls}
-            try:
-                for future in as_completed(futures, timeout=8):
-                    tried += 1
-                    hit = future.result()
-                    if hit:
-                        found.append(hit)
-                        if len(found) >= limit:
-                            break
-            except TimeoutError:
-                pass
-            finally:
-                for future in futures:
-                    future.cancel()
+        http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:24]
+        rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:16]
 
-    if len(found) < limit:
-        for url in rtsp_urls:
-            tried += 1
-            hit = _probe_one(url)
-            if hit:
-                found.append(hit)
-                if len(found) >= limit:
-                    break
+        if http_urls:
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                futures = {pool.submit(_probe_one, url): url for url in http_urls}
+                try:
+                    for future in as_completed(futures, timeout=8):
+                        tried += 1
+                        hit = future.result()
+                        if hit:
+                            found.append(hit)
+                            if len(found) >= limit:
+                                break
+                except TimeoutError:
+                    pass
+                finally:
+                    for future in futures:
+                        future.cancel()
+
+        if len(found) < limit:
+            for url in rtsp_urls:
+                tried += 1
+                hit = _probe_one(url)
+                if hit:
+                    found.append(hit)
+                    if len(found) >= limit:
+                        break
 
     best = found[0] if found else None
     suggestion = None
@@ -544,15 +578,18 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
             f"Открытые порты: {open_ports or '—'}"
         )
     elif open_ports:
-        wake_note = "ICMP wakeup отправлен." if wake.get("ok") else (
-            "ICMP wakeup не удался — запустите сервер через sudo или откройте GoPlus CamPro."
-        )
-        ff = "ffmpeg установлен" if ffmpeg_available() else "ffmpeg НЕ установлен (brew install ffmpeg)"
+        tcp = wake.get("tcp") if isinstance(wake.get("tcp"), dict) else {}
+        if tcp.get("ok"):
+            wake_note = "TCP :6666 preview запущен."
+        else:
+            wake_note = (
+                f"TCP :6666 не ответил ({tcp.get('error', 'нет связи')}). "
+                "Закройте GoPlus CamPro на телефоне и повторите."
+            )
         message = (
             f"На {hostname} открыты порты {open_ports}. {wake_note} "
-            "GoPlus CamPro обычно отдаёт MJPEG: "
-            "http://192.168.100.1:8080/?action=stream. "
-            f"RTSP без wakeup даёт 404 — {ff}."
+            "После preview поток обычно на "
+            "http://192.168.100.1:8080/?action=stream."
         )
     else:
         message = f"Хост {hostname} не отвечает. Проверьте Wi‑Fi ActionCam."

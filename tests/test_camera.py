@@ -17,15 +17,21 @@ def test_wakeup_payload_length():
     assert b"99 bottles of beer on the wall" in payload
 
 
-def test_wake_camera_uses_ping_fallback(monkeypatch):
-    monkeypatch.setattr("fridge.camera._send_icmp_wakeup", lambda *_a, **_k: (_ for _ in ()).throw(PermissionError()))
+def test_wake_camera_uses_tcp_preview(monkeypatch):
     monkeypatch.setattr(
-        "fridge.camera._ping_fallback",
-        lambda host, count=3: {"ok": True, "method": "system_ping", "host": host, "sent": count},
+        "fridge.camera._icmp_wakeup_only",
+        lambda host, count=3: {"ok": False, "method": "raw_icmp", "host": host},
+    )
+    monkeypatch.setattr(
+        "fridge.goplus.start_preview_session",
+        lambda host, port=6666, username="admin", password="12345": (
+            None,
+            {"ok": True, "method": "tcp_6666", "host": host},
+        ),
     )
     result = wake_camera({"camera_host": "192.168.100.1"})
     assert result["ok"] is True
-    assert result["method"] == "system_ping"
+    assert result["method"] == "tcp_6666"
 
 
 def test_candidate_urls_include_alternates():

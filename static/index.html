@@ -142,15 +142,15 @@
       </div>
     </form>
     <p class="help">
-      GoPlus CamPro (Generalplus) <strong>не отдаёт поток сразу</strong>: приложение сначала шлёт
-      ICMP «99 bottles of beer on the wall», потом открывает
+      GoPlus CamPro не отдаёт MJPEG «с холодного старта». Сначала нужен
+      <strong>TCP login на :6666</strong> (<span class="mono">admin / 12345</span>) и команда preview —
+      как в приложении. Сервер делает это при «Найти поток» / «Проверить камеру».
+      Обычный <span class="mono">ping</span> не помогает. Проверка в терминале:
+      <span class="mono">nc -zv 192.168.100.1 6666</span>, затем
+      <span class="mono">python -m fridge.goplus 192.168.100.1</span>.
+      Закройте GoPlus CamPro на телефоне, если порт занят. Поток:
       <span class="mono">http://192.168.100.1:8080/?action=stream</span>.
-      Сервер делает wakeup автоматически при «Найти поток» / «Проверить камеру».
-      RTSP на :8080 в PCAPdroid — это внутренний протокол приложения; без wakeup
-      <span class="mono">ffprobe rtsp://…</span> даёт <strong>404</strong>.
-      Если не работает — запустите сервер через <span class="mono">sudo uvicorn …</span>
-      или откройте GoPlus CamPro на телефоне. Пока поток не найден, работает
-      <strong>«Загрузить фото»</strong>.
+      Пока не работает — <strong>«Загрузить фото»</strong>.
     </p>
   </section>
 

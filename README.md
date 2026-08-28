@@ -32,32 +32,32 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 
-Камера Generalplus **спит**, пока приложение не «разбудит» её ICMP-пакетом с текстом
-`99 bottles of beer on the wall`. После этого поток обычно доступен по HTTP MJPEG:
+**Обычный `ping` не включает preview.** GoPlus CamPro сначала логинится по **TCP :6666**
+(`admin` / `12345`), шлёт команду «start preview», и только потом открывается
+HTTP MJPEG на `:8080`.
+
+Проверка вручную (Mac, Wi‑Fi камеры):
 
 ```bash
-# поток = http://192.168.100.1:8080/?action=stream
-# снимок = http://192.168.100.1:8080/?action=snapshot
-```
+git pull origin cursor/smart-fridge-web-261c
+pip install -r requirements.txt
 
-Проверка вручную (Mac, подключены к Wi‑Fi камеры):
+# 1) открыт ли control-порт?
+nc -zv 192.168.100.1 6666
 
-```bash
-ping -c 3 192.168.100.1
+# 2) запустить preview (наш скрипт)
+python -m fridge.goplus 192.168.100.1
+
+# 3) пока скрипт держит сессию (~5 сек), в другом окне:
 curl -m 5 "http://192.168.100.1:8080/?action=stream" -o /tmp/cam.bin
 xxd /tmp/cam.bin | head
 ```
 
-Если `curl` всё ещё «Empty reply» — откройте GoPlus CamPro на телефоне (preview),
-затем повторите `curl`. RTSP `404` без wakeup — нормально: PCAPdroid видит RTSP
-только когда приложение уже разбудило камеру.
+Если `nc` к :6666 не коннектится — закройте GoPlus CamPro на телефоне (камера
+может быть занята). Если preview стартует, но `curl` пустой — пришлите вывод
+`nc -zv 192.168.100.1 6666` и `python -m fridge.goplus 192.168.100.1`.
 
-Сервер шлёт wakeup сам при «Найти поток» / «Проверить камеру». Если не помогает,
-запустите с правами на ICMP:
-
-```bash
-sudo uvicorn fridge.main:app --host 0.0.0.0 --port 8000
-```
+В веб-интерфейсе **«Найти поток»** делает то же самое автоматически.
 
 Пока поток не найден, используйте **«Загрузить фото»**.
 
