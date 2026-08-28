@@ -213,6 +213,7 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
             "-i", url,
             "-map", "0:v:0",
             "-frames:v", "1",
+            "-update", "1",
             "-an",
             "-q:v", "2",
             "-y", str(out),

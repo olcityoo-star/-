@@ -47,7 +47,7 @@ ffprobe -rtsp_transport tcp -i "rtsp://192.168.100.1:8080/?action=stream"
 # Кадр с камеры — видео идёт RTP/UDP (ffmpeg 9: `-timeout`, не `-stimeout`):
 ffmpeg -rtsp_transport udp -timeout 10000000 -analyzeduration 10M -probesize 10M \
   -i "rtsp://192.168.100.1:8080/?action=stream" \
-  -map 0:v:0 -frames:v 1 -an -y /tmp/cam.jpg
+  -map 0:v:0 -frames:v 1 -update 1 -an -y /tmp/cam.jpg
 
 python -m fridge.cam_diag 192.168.100.1
 ```
