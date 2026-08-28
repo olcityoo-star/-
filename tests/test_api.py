@@ -112,6 +112,34 @@ def test_camera_status_post_uses_form_overrides(client, monkeypatch):
     assert seen[0]["stream_url"] == "rtsp://192.168.100.1:8080/?action=stream"
 
 
+def test_camera_status_get_accepts_query_overrides(client, monkeypatch):
+    seen: list[dict] = []
+
+    def fake_probe(settings):
+        seen.append(dict(settings))
+        return {
+            "online": True,
+            "width": 640,
+            "height": 360,
+            "bytes": 123,
+            "message": "ok",
+            "ffmpeg": True,
+            "url": settings.get("stream_url"),
+        }
+
+    monkeypatch.setattr("fridge.main.probe_camera", fake_probe)
+    res = client.get(
+        "/api/camera/status",
+        params={
+            "stream_url": "http://192.168.100.1:8080/?action=stream",
+            "camera_host": "192.168.100.1",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["online"] is True
+    assert seen[0]["stream_url"] == "rtsp://192.168.100.1:8080/?action=stream"
+
+
 def _jpeg_bytes() -> bytes:
     image = Image.new("RGB", (64, 48), (20, 80, 90))
     buf = BytesIO()

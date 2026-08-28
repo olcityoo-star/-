@@ -294,6 +294,16 @@ function readCameraFormSettings() {
   };
 }
 
+function cameraSettingsQuery(formSettings = null) {
+  const form = formSettings || readCameraFormSettings();
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(form)) {
+    if (value) params.set(key, value);
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 const PROBE_TIMEOUT_MS = 45000;
 const DISCOVER_TIMEOUT_MS = 90000;
 
@@ -309,15 +319,12 @@ async function probeCamera(options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const data = await api("/api/camera/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(readCameraFormSettings()),
+    const data = await api(`/api/camera/status${cameraSettingsQuery()}`, {
       signal: controller.signal,
     });
     setCameraChip(data.online, data.online ? `${data.width}×${data.height}` : "нет связи");
     if (!data.online && !silent) toast(data.message || "Камера не отвечает");
-    else     if (data.online && !silent) toast(`Камера OK: ${data.width}×${data.height}`);
+    else if (data.online && !silent) toast(`Камера OK: ${data.width}×${data.height}`);
     if (data.online) {
       try {
         state.settings = await api("/api/settings", {

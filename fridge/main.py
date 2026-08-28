@@ -230,9 +230,24 @@ def _camera_status_payload(settings: dict[str, str]) -> dict:
 
 
 @app.get("/api/camera/status")
-def camera_status() -> dict:
+def camera_status(
+    camera_host: str | None = None,
+    stream_url: str | None = None,
+    snapshot_url: str | None = None,
+) -> dict:
     with db.session() as conn:
         settings = db.get_settings(conn)
+        overrides = {
+            key: value
+            for key, value in {
+                "camera_host": camera_host,
+                "stream_url": stream_url,
+                "snapshot_url": snapshot_url,
+            }.items()
+            if value
+        }
+        if overrides:
+            settings = merge_camera_settings(settings, overrides)
     return _camera_status_payload(settings)
 
 
