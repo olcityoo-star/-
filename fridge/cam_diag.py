@@ -102,8 +102,12 @@ def diagnose(host: str = "192.168.100.1") -> dict[str, object]:
     print("\n--- HTTP MJPEG ---")
     http_hits = _probe_http_ports(host, http_ports)
 
-    print("\n--- RTSP ---")
-    rtsp_hits = _probe_rtsp_ports(host, http_ports)
+    print("\n--- RTSP (PCAP: rtsp://HOST:8080/?action=stream) ---")
+    rtsp_primary = _try_rtsp(host, 8080, "/?action=stream", timeout=8.0)
+    print(f"RTSP primary: {rtsp_primary}")
+    rtsp_hits = [rtsp_primary] if rtsp_primary.get("ok") else []
+    if not rtsp_hits:
+        rtsp_hits = _probe_rtsp_ports(host, http_ports)
 
     print()
     if http_hits:

@@ -172,31 +172,19 @@ def _icmp_wakeup_only(host: str, count: int = 3) -> dict[str, object]:
 
 @contextmanager
 def activated_camera(settings: dict[str, str]):
-    from fridge.goplus import start_preview_session
-
     host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
     hostname = host.split(":")[0]
     icmp = _icmp_wakeup_only(hostname)
+    wake: dict[str, object] = {
+        "ok": bool(icmp.get("ok")),
+        "icmp": icmp,
+        "host": hostname,
+        "method": "rtsp_action_stream",
+        "url": f"rtsp://{hostname}:8080/?action=stream",
+    }
     if icmp.get("ok"):
         time.sleep(0.2)
-
-    session, tcp = start_preview_session(hostname)
-    wake: dict[str, object] = {
-        "ok": bool(icmp.get("ok")) or bool(tcp.get("ok")),
-        "icmp": icmp,
-        "tcp": tcp,
-        "host": hostname,
-    }
-    if tcp.get("ok"):
-        wake["method"] = "tcp_6666"
-        wake["message"] = "preview started on TCP 6666"
-    elif icmp.get("ok"):
-        wake["method"] = icmp.get("method")
-    try:
-        yield wake
-    finally:
-        if session:
-            session.close()
+    yield wake
 
 
 def wake_camera(settings: dict[str, str], count: int = 3) -> dict[str, object]:
@@ -223,6 +211,15 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
 
 
 def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
+    lowered = url.lower()
+    if "action=stream" in lowered:
+        try:
+            from fridge.goplus_rtsp import capture_jpeg
+
+            return capture_jpeg(url, timeout=timeout)
+        except Exception as native_exc:  # noqa: BLE001
+            if not ffmpeg_available():
+                raise RuntimeError(f"RTSP native: {native_exc}") from native_exc
     if not ffmpeg_available():
         raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
     last_error: Exception | None = None

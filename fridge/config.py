@@ -14,9 +14,9 @@ STATIC_DIR = ROOT / "static"
 
 CAMERA_NAME = "ActionCam_f8160c0282c2"
 CAMERA_HOST = "192.168.100.1"
-# Generalplus / GoPlus CamPro: ICMP wakeup, then MJPEG over HTTP on :8080.
-STREAM_URL = f"http://{CAMERA_HOST}:8080/?action=stream"
-SNAPSHOT_URL = f"http://{CAMERA_HOST}:8080/?action=snapshot"
+# PCAP GoPlus CamPro: RTSP on :8080/?action=stream (MJPEG over RTP, not HTTP).
+STREAM_URL = f"rtsp://{CAMERA_HOST}:8080/?action=stream"
+SNAPSHOT_URL = f"rtsp://{CAMERA_HOST}:8080/?action=stream"
 
 # Official Ultralytics nano weights (ONNX). Downloaded on first scan if missing.
 MODEL_URLS = [

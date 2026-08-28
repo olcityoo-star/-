@@ -32,18 +32,16 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 
-**К камере одновременно подключается только одно устройство.** Телефон с GoPlus CamPro
-и Mac не могут работать параллельно — отсюда «Empty reply» и «Connection refused».
+**PCAP GoPlus CamPro:** видео идёт по **RTSP**, не по HTTP:
 
-### Режим для умного холодильника
+```text
+rtsp://192.168.100.1:8080/?action=stream
+```
 
-1. **Только Mac** (или Raspberry Pi) подключён к Wi‑Fi ActionCam.
-2. На телефоне **отключите** Wi‑Fi ActionCam и **закройте** GoPlus CamPro.
-3. На Mac:
+Проверка на Mac (только ActionCam Wi‑Fi, телефон отключён):
 
 ```bash
-cd ~/smart-fridge
-source .venv/bin/activate
+ffprobe -rtsp_transport tcp -i "rtsp://192.168.100.1:8080/?action=stream"
 python -m fridge.cam_diag 192.168.100.1
 ```
 

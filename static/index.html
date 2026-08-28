@@ -119,11 +119,11 @@
       <label>IP / хост
         <input name="camera_host" placeholder="192.168.100.1">
       </label>
-      <label>Поток (HTTP/RTSP)
-        <input name="stream_url" placeholder="http://192.168.100.1:8080/?action=stream">
+      <label>Поток (RTSP)
+        <input name="stream_url" placeholder="rtsp://192.168.100.1:8080/?action=stream">
       </label>
       <label>Снимок / тот же поток
-        <input name="snapshot_url" placeholder="http://192.168.100.1:8080/?action=snapshot">
+        <input name="snapshot_url" placeholder="rtsp://192.168.100.1:8080/?action=stream">
       </label>
       <label>Порог YOLO
         <input name="confidence" type="number" min="0.05" max="0.95" step="0.05">
@@ -142,11 +142,10 @@
       </div>
     </form>
     <p class="help">
-      <strong>К камере — только одно устройство.</strong> Если телефон в GoPlus CamPro,
-      Mac получит «Empty reply». Для умного холодильника: Mac (или Raspberry Pi) постоянно
-      на Wi‑Fi ActionCam, телефон отключён от этой сети. Сервер сам пробует запустить preview
-      при «Найти поток». Поток:
-      <span class="mono">http://192.168.100.1:8080/?action=stream</span>.
+      <strong>PCAP:</strong> поток = RTSP
+      <span class="mono">rtsp://192.168.100.1:8080/?action=stream</span>
+      (не HTTP curl). К камере — одно устройство: только Mac на ActionCam Wi‑Fi.
+      Проверка: <span class="mono">python -m fridge.cam_diag 192.168.100.1</span>.
       Пока не работает — <strong>«Загрузить фото»</strong>.
     </p>
   </section>

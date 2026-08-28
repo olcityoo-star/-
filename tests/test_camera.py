@@ -17,21 +17,15 @@ def test_wakeup_payload_length():
     assert b"99 bottles of beer on the wall" in payload
 
 
-def test_wake_camera_uses_tcp_preview(monkeypatch):
+def test_wake_camera_returns_rtsp_wake(monkeypatch):
     monkeypatch.setattr(
         "fridge.camera._icmp_wakeup_only",
-        lambda host, count=3: {"ok": False, "method": "raw_icmp", "host": host},
-    )
-    monkeypatch.setattr(
-        "fridge.goplus.start_preview_session",
-        lambda host, port=6666, username="admin", password="12345": (
-            None,
-            {"ok": True, "method": "tcp_6666", "host": host},
-        ),
+        lambda host, count=3: {"ok": True, "method": "system_ping", "host": host},
     )
     result = wake_camera({"camera_host": "192.168.100.1"})
     assert result["ok"] is True
-    assert result["method"] == "tcp_6666"
+    assert result["method"] == "rtsp_action_stream"
+    assert "action=stream" in str(result["url"])
 
 
 def test_candidate_urls_include_alternates():
