@@ -461,8 +461,8 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
     wake_note = ""
     if not tcp.get("ok"):
         wake_note = (
-            " TCP :6666 не ответил — проверьте "
-            "nc -zv 192.168.100.1 6666 и закройте GoPlus CamPro на телефоне."
+            " TCP control не ответил — к камере подключено только одно устройство: "
+            "отключите телефон от Wi‑Fi ActionCam и закройте GoPlus CamPro."
         )
     tip = ""
     if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
@@ -583,8 +583,8 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
             wake_note = "TCP :6666 preview запущен."
         else:
             wake_note = (
-                f"TCP :6666 не ответил ({tcp.get('error', 'нет связи')}). "
-                "Закройте GoPlus CamPro на телефоне и повторите."
+                f"TCP control не ответил ({tcp.get('error', 'нет связи')}). "
+                "К камере — одно устройство: отключите телефон от ActionCam Wi‑Fi."
             )
         message = (
             f"На {hostname} открыты порты {open_ports}. {wake_note} "

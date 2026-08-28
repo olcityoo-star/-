@@ -142,13 +142,10 @@
       </div>
     </form>
     <p class="help">
-      GoPlus CamPro не отдаёт MJPEG «с холодного старта». Сначала нужен
-      <strong>TCP login на :6666</strong> (<span class="mono">admin / 12345</span>) и команда preview —
-      как в приложении. Сервер делает это при «Найти поток» / «Проверить камеру».
-      Обычный <span class="mono">ping</span> не помогает. Проверка в терминале:
-      <span class="mono">nc -zv 192.168.100.1 6666</span>, затем
-      <span class="mono">python -m fridge.goplus 192.168.100.1</span>.
-      Закройте GoPlus CamPro на телефоне, если порт занят. Поток:
+      <strong>К камере — только одно устройство.</strong> Если телефон в GoPlus CamPro,
+      Mac получит «Empty reply». Для умного холодильника: Mac (или Raspberry Pi) постоянно
+      на Wi‑Fi ActionCam, телефон отключён от этой сети. Сервер сам пробует запустить preview
+      при «Найти поток». Поток:
       <span class="mono">http://192.168.100.1:8080/?action=stream</span>.
       Пока не работает — <strong>«Загрузить фото»</strong>.
     </p>

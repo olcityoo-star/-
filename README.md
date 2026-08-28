@@ -32,27 +32,29 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 
-У разных прошивок разные протоколы. Сначала диагностика:
+**К камере одновременно подключается только одно устройство.** Телефон с GoPlus CamPro
+и Mac не могут работать параллельно — отсюда «Empty reply» и «Connection refused».
+
+### Режим для умного холодильника
+
+1. **Только Mac** (или Raspberry Pi) подключён к Wi‑Fi ActionCam.
+2. На телефоне **отключите** Wi‑Fi ActionCam и **закройте** GoPlus CamPro.
+3. На Mac:
 
 ```bash
 cd ~/smart-fridge
-git pull origin cursor/smart-fridge-web-261c
 source .venv/bin/activate
 python -m fridge.cam_diag 192.168.100.1
+uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 ```
 
-Если `TCP :6666` — **connection refused**, это нормально для CamPro: у вашей модели
-нет libipcamera-порта 6666.
+4. В браузере на том же Mac: «Найти поток» → «Скан с камеры».
 
-Если MJPEG пустой, включите **live preview в GoPlus CamPro на телефоне**
-(Mac и телефон на Wi‑Fi камеры) и сразу снова:
+Для постоянной работы позже можно перевести камеру в режим **Station** (подключение к
+домашнему Wi‑Fi через веб `http://192.168.100.1` или `http://192.168.25.1`) и держать
+мини‑ПК как единственный клиент.
 
-```bash
-python -m fridge.cam_diag 192.168.100.1
-curl -m 5 "http://192.168.100.1:8080/?action=stream" -o /tmp/cam.bin
-```
-
-Пока поток не найден — **«Загрузить фото»** в веб-интерфейсе.
+Пока поток не найден — **«Загрузить фото»**.
 
 ## Тесты
 

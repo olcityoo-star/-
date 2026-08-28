@@ -31,6 +31,9 @@ def diagnose(host: str = "192.168.100.1") -> dict[str, object]:
     host = host.strip()
     print(f"Диагностика камеры {host}")
     print("=" * 40)
+    print("Важно: к ActionCam одновременно подключается только ОДНО устройство.")
+    print("Отключите Wi‑Fi ActionCam на телефоне и закройте GoPlus CamPro.")
+    print()
 
     reachable = tcp_open(host, 8080, timeout=1.0)
     print(f"TCP :8080 доступен: {'да' if reachable else 'нет'}")
@@ -71,11 +74,11 @@ def diagnose(host: str = "192.168.100.1") -> dict[str, object]:
         print("Preview через TCP отправлен, но MJPEG пустой — возможно, нужен RTSP.")
     else:
         print("Поток не стартовал с Mac.")
-        print("Сделайте так:")
-        print("  1) Mac и телефон — Wi‑Fi ActionCam")
-        print("  2) GoPlus CamPro → live preview (видео на телефоне)")
-        print("  3) Сразу повторите: python -m fridge.cam_diag", host)
-        print("  4) Если с preview работает — пришлите вывод PCAPdroid (RTSP URL)")
+        print("Проверьте:")
+        print("  1) Только Mac на Wi‑Fi ActionCam (телефон отключён от этой сети)")
+        print("  2) GoPlus CamPro полностью закрыт на телефоне")
+        print("  3) Повторите: python -m fridge.cam_diag", host)
+        print("  4) Если снова пусто — пришлите вывод cam_diag (нужен RTSP URL из PCAPdroid)")
 
     return {
         "host": host,
