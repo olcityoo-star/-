@@ -200,7 +200,13 @@ def _rtsp_transports(url: str) -> tuple[str, ...]:
     return ("tcp", "udp")
 
 
-def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
+def _grab_rtsp_frame(
+    url: str,
+    timeout: float,
+    transport: str,
+    *,
+    probe_us: str = "10000000",
+) -> bytes:
     with tempfile.TemporaryDirectory(prefix="fridge-rtsp-") as tmp:
         out = Path(tmp) / "frame.jpg"
         timeout_us = str(int(max(timeout, 8.0) * 1_000_000))
@@ -208,8 +214,8 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-rtsp_transport", transport,
             "-timeout", timeout_us,
-            "-analyzeduration", "10000000",
-            "-probesize", "10000000",
+            "-analyzeduration", probe_us,
+            "-probesize", probe_us,
             "-i", url,
             "-map", "0:v:0",
             "-frames:v", "1",
@@ -224,17 +230,25 @@ def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
         return out.read_bytes()
 
 
-def grab_rtsp_frame(url: str, timeout: float = 15.0) -> bytes:
+def grab_rtsp_frame(url: str, timeout: float = 15.0, *, fast: bool = False) -> bytes:
+    probe_us = "2000000" if fast else "10000000"
+    attempt_timeout = min(timeout, 10.0) if fast else timeout
     if not ffmpeg_available():
         if "action=stream" in url.lower():
             from fridge.goplus_rtsp import capture_jpeg
 
-            return capture_jpeg(url, timeout=timeout)
+            return capture_jpeg(url, timeout=attempt_timeout)
         raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
     last_error: Exception | None = None
-    for transport in _rtsp_transports(url):
+    transports = ("udp",) if fast and "action=stream" in url.lower() else _rtsp_transports(url)
+    for transport in transports:
         try:
-            return _grab_rtsp_frame(url, timeout=timeout, transport=transport)
+            return _grab_rtsp_frame(
+                url,
+                timeout=attempt_timeout,
+                transport=transport,
+                probe_us=probe_us,
+            )
         except subprocess.TimeoutExpired:
             last_error = RuntimeError(f"RTSP таймаут ({transport}): {url}")
         except subprocess.CalledProcessError as exc:
@@ -242,6 +256,15 @@ def grab_rtsp_frame(url: str, timeout: float = 15.0) -> bytes:
             last_error = RuntimeError(f"RTSP ошибка ({transport}, {url}): {err or exc}")
         except Exception as exc:  # noqa: BLE001
             last_error = exc
+    if fast:
+        if "action=stream" in url.lower():
+            try:
+                from fridge.goplus_rtsp import capture_jpeg
+
+                return capture_jpeg(url, timeout=attempt_timeout)
+            except Exception as native_exc:  # noqa: BLE001
+                last_error = native_exc
+        raise last_error or RuntimeError(f"RTSP недоступен: {url}")
     if "action=stream" in url.lower():
         try:
             from fridge.goplus_rtsp import capture_jpeg
@@ -316,10 +339,11 @@ def grab_raw_http_frame(url: str, timeout: float = 3.5) -> bytes:
     raise RuntimeError(f"в ответе нет JPEG (начало: {preview!r})")
 
 
-def grab_url(url: str, timeout: float = 3.5) -> bytes:
+def grab_url(url: str, timeout: float = 3.5, *, fast: bool = False) -> bytes:
     lowered = url.lower().strip()
     if lowered.startswith("rtsp://"):
-        return grab_rtsp_frame(url, timeout=max(timeout, 8.0))
+        rtsp_timeout = min(timeout, 10.0) if fast else max(timeout, 8.0)
+        return grab_rtsp_frame(url, timeout=rtsp_timeout, fast=fast)
     stream_like = any(
         token in lowered
         for token in ("action=stream", "mjpg", "mjpeg", "/stream", "/video", "videostream")
@@ -514,6 +538,26 @@ def candidate_urls(
     return _finalize_urls(urls, limit=60)
 
 
+def merge_camera_settings(
+    base: dict[str, str],
+    overrides: dict[str, str | None] | None,
+) -> dict[str, str]:
+    merged = dict(base)
+    if not overrides:
+        return merged
+    for key in ("camera_host", "stream_url", "snapshot_url"):
+        value = overrides.get(key)
+        if value is None:
+            continue
+        cleaned = str(value).strip()
+        if not cleaned:
+            continue
+        if key in {"stream_url", "snapshot_url"}:
+            cleaned = normalize_stream_url(cleaned)
+        merged[key] = cleaned
+    return merged
+
+
 def configured_stream_urls(settings: dict[str, str]) -> list[str]:
     urls: list[str] = []
     for key in ("stream_url", "snapshot_url"):
@@ -522,16 +566,28 @@ def configured_stream_urls(settings: dict[str, str]) -> list[str]:
     return urls
 
 
-def capture_snapshot(settings: dict[str, str], *, urls: list[str] | None = None) -> bytes:
+def capture_snapshot(
+    settings: dict[str, str],
+    *,
+    urls: list[str] | None = None,
+    fast: bool = False,
+) -> bytes:
     with activated_camera(settings) as wake:
         errors: list[str] = []
         try_list = list(urls or [])
         if not try_list:
+            try_list = configured_stream_urls(settings)
+        if not try_list:
             try_list = candidate_urls(settings, discovery=False)
         last_error: Exception | None = None
+        rtsp_timeout = 10.0 if fast else 12.0
         for url in try_list:
             try:
-                raw = grab_url(url, timeout=12.0 if url.lower().startswith("rtsp://") else 2.5)
+                raw = grab_url(
+                    url,
+                    timeout=rtsp_timeout if url.lower().startswith("rtsp://") else 2.5,
+                    fast=fast,
+                )
                 return as_jpeg(raw)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
@@ -558,9 +614,9 @@ def capture_snapshot(settings: dict[str, str], *, urls: list[str] | None = None)
 def probe_camera(settings: dict[str, str]) -> dict[str, object]:
     urls = configured_stream_urls(settings)
     if not urls:
-        urls = candidate_urls(settings, discovery=False)[:4]
+        urls = candidate_urls(settings, discovery=False)[:2]
     try:
-        jpeg = capture_snapshot(settings, urls=urls)
+        jpeg = capture_snapshot(settings, urls=urls, fast=True)
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         return {
@@ -584,10 +640,10 @@ def probe_camera(settings: dict[str, str]) -> dict[str, object]:
         }
 
 
-def _probe_one(url: str) -> dict[str, object] | None:
+def _probe_one(url: str, *, fast: bool = False) -> dict[str, object] | None:
     try:
-        timeout = 8.0 if url.lower().startswith("rtsp://") else 2.5
-        jpeg = as_jpeg(grab_url(url, timeout=timeout))
+        timeout = 10.0 if url.lower().startswith("rtsp://") else 2.5
+        jpeg = as_jpeg(grab_url(url, timeout=timeout, fast=fast))
         with Image.open(BytesIO(jpeg)) as image:
             width, height = image.size
         parsed = urlparse(url)
@@ -617,14 +673,14 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
         found: list[dict[str, object]] = []
         tried = 0
 
-        rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:16]
+        rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:6]
         http_urls = [
             u for u in urls if not u.lower().startswith("rtsp://") and not _skip_http_probe(u)
-        ][:24]
+        ][:12]
 
         for url in rtsp_urls:
             tried += 1
-            hit = _probe_one(url)
+            hit = _probe_one(url, fast=True)
             if hit:
                 found.append(hit)
                 if len(found) >= limit:

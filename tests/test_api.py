@@ -77,6 +77,41 @@ def test_settings_roundtrip(client):
     assert body["confidence"] == "0.4"
 
 
+def test_camera_status_post_uses_form_overrides(client, monkeypatch):
+    from io import BytesIO
+
+    from PIL import Image
+
+    jpeg = BytesIO()
+    Image.new("RGB", (640, 360), (1, 2, 3)).save(jpeg, format="JPEG")
+    payload = jpeg.getvalue()
+    seen: list[dict] = []
+
+    def fake_probe(settings):
+        seen.append(dict(settings))
+        return {
+            "online": True,
+            "width": 640,
+            "height": 360,
+            "bytes": len(payload),
+            "message": "ok",
+            "ffmpeg": True,
+            "url": settings.get("stream_url"),
+        }
+
+    monkeypatch.setattr("fridge.main.probe_camera", fake_probe)
+    res = client.post(
+        "/api/camera/status",
+        json={
+            "stream_url": "http://192.168.100.1:8080/?action=stream",
+            "camera_host": "192.168.100.1",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["online"] is True
+    assert seen[0]["stream_url"] == "rtsp://192.168.100.1:8080/?action=stream"
+
+
 def _jpeg_bytes() -> bytes:
     image = Image.new("RGB", (64, 48), (20, 80, 90))
     buf = BytesIO()

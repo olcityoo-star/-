@@ -284,7 +284,18 @@ async function loadSettings() {
   }
 }
 
+function readCameraFormSettings() {
+  const form = $("#settingsForm");
+  if (!form) return {};
+  return {
+    camera_host: form.elements.camera_host?.value?.trim() || "",
+    stream_url: form.elements.stream_url?.value?.trim() || "",
+    snapshot_url: form.elements.snapshot_url?.value?.trim() || "",
+  };
+}
+
 const PROBE_TIMEOUT_MS = 45000;
+const DISCOVER_TIMEOUT_MS = 90000;
 
 async function probeCamera(options = {}) {
   const { silent = false } = options;
@@ -298,10 +309,26 @@ async function probeCamera(options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
   try {
-    const data = await api("/api/camera/status", { signal: controller.signal });
+    const data = await api("/api/camera/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(readCameraFormSettings()),
+      signal: controller.signal,
+    });
     setCameraChip(data.online, data.online ? `${data.width}×${data.height}` : "нет связи");
     if (!data.online && !silent) toast(data.message || "Камера не отвечает");
-    else if (data.online && !silent) toast(`Камера OK: ${data.width}×${data.height}`);
+    else     if (data.online && !silent) toast(`Камера OK: ${data.width}×${data.height}`);
+    if (data.online) {
+      try {
+        state.settings = await api("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(readCameraFormSettings()),
+        });
+      } catch {
+        /* keep going if autosave fails */
+      }
+    }
     return data;
   } catch (err) {
     setCameraChip(false, err.name === "AbortError" ? "таймаут" : "ошибка");
@@ -332,7 +359,11 @@ async function runScan(kind, file) {
       body.append("file", file);
       scan = await api("/api/scan/upload", { method: "POST", body });
     } else {
-      scan = await api("/api/scan", { method: "POST" });
+      scan = await api("/api/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(readCameraFormSettings()),
+      });
     }
     state.scan = scan;
     renderScan();
@@ -377,9 +408,14 @@ function bind() {
     btn.disabled = true;
     btn.textContent = "Ищу…";
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), DISCOVER_TIMEOUT_MS);
     try {
-      const result = await api("/api/camera/discover", { method: "POST", signal: controller.signal });
+      const result = await api("/api/camera/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(readCameraFormSettings()),
+        signal: controller.signal,
+      });
       if (result.settings) {
         state.settings = result.settings;
         const form = $("#settingsForm");
@@ -404,7 +440,7 @@ function bind() {
         setCameraChip(false, "не найден");
       }
     } catch (err) {
-      toast(err.name === "AbortError" ? "Поиск превысил 15 сек. Проверьте Wi‑Fi камеры." : err.message);
+      toast(err.name === "AbortError" ? "Поиск превысил 90 сек. Проверьте RTSP URL в поле выше." : err.message);
       setCameraChip(false, "таймаут");
     } finally {
       clearTimeout(timer);

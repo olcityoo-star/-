@@ -9,7 +9,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fridge import db
-from fridge.camera import capture_snapshot, discover_streams, normalize_stream_url, probe_camera, wake_camera
+from fridge.camera import (
+    capture_snapshot,
+    discover_streams,
+    merge_camera_settings,
+    normalize_stream_url,
+    probe_camera,
+    wake_camera,
+)
 from fridge.config import CAPTURES_DIR, STATIC_DIR
 from fridge.dataset import add_sample, add_samples_from_scan, dataset_stats, delete_label
 from fridge.detect import detect_image, detector_status, ensure_model
@@ -54,6 +61,12 @@ class SettingsIn(BaseModel):
     food_only: str | bool | int | None = None
     custom_threshold: str | float | None = None
     use_custom: str | bool | int | None = None
+
+
+class CameraProbeIn(BaseModel):
+    camera_host: str | None = None
+    stream_url: str | None = None
+    snapshot_url: str | None = None
 
 
 class ConfirmIn(BaseModel):
@@ -205,10 +218,7 @@ def get_shopping() -> dict:
     return {"items": need, "count": len(need)}
 
 
-@app.get("/api/camera/status")
-def camera_status() -> dict:
-    with db.session() as conn:
-        settings = db.get_settings(conn)
+def _camera_status_payload(settings: dict[str, str]) -> dict:
     probe = probe_camera(settings)
     probe["settings"] = {
         "camera_name": settings.get("camera_name"),
@@ -219,6 +229,22 @@ def camera_status() -> dict:
     return probe
 
 
+@app.get("/api/camera/status")
+def camera_status() -> dict:
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+    return _camera_status_payload(settings)
+
+
+@app.post("/api/camera/status")
+def camera_status_post(payload: CameraProbeIn | None = None) -> dict:
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+        if payload is not None:
+            settings = merge_camera_settings(settings, payload.model_dump(exclude_none=True))
+    return _camera_status_payload(settings)
+
+
 @app.post("/api/camera/wake")
 def camera_wake() -> dict:
     with db.session() as conn:
@@ -227,9 +253,11 @@ def camera_wake() -> dict:
 
 
 @app.post("/api/camera/discover")
-def camera_discover(save: bool = True) -> dict:
+def camera_discover(payload: CameraProbeIn | None = None, save: bool = True) -> dict:
     with db.session() as conn:
         settings = db.get_settings(conn)
+        if payload is not None:
+            settings = merge_camera_settings(settings, payload.model_dump(exclude_none=True))
         result = discover_streams(settings)
         if save and result.get("suggestion"):
             suggestion = result["suggestion"]
@@ -274,9 +302,11 @@ def model_download() -> dict:
 
 
 @app.post("/api/scan")
-def scan_camera() -> dict:
+def scan_camera(payload: CameraProbeIn | None = None) -> dict:
     with db.session() as conn:
         settings = db.get_settings(conn)
+        if payload is not None:
+            settings = merge_camera_settings(settings, payload.model_dump(exclude_none=True))
     try:
         jpeg = capture_snapshot(settings)
     except Exception as extra:  # noqa: BLE001

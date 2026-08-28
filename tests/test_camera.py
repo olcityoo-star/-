@@ -61,18 +61,6 @@ def test_normalize_stream_url_action_stream():
     assert normalize_stream_url("http://192.168.1.1/snapshot.jpg").startswith("http://")
 
 
-def test_configured_stream_urls_prefers_saved_rtsp():
-    from fridge.camera import configured_stream_urls
-
-    urls = configured_stream_urls(
-        {
-            "stream_url": "rtsp://192.168.100.1:8080/?action=stream",
-            "snapshot_url": "rtsp://192.168.100.1:8080/?action=stream",
-        }
-    )
-    assert urls == ["rtsp://192.168.100.1:8080/?action=stream"]
-
-
 def test_probe_camera_uses_configured_url(monkeypatch):
     from io import BytesIO
 
@@ -85,8 +73,9 @@ def test_probe_camera_uses_configured_url(monkeypatch):
     jpeg = buf.getvalue()
     seen: list[list[str]] = []
 
-    def fake_capture(settings, *, urls=None):
+    def fake_capture(settings, *, urls=None, fast=False):
         seen.append(list(urls or []))
+        assert fast is True
         return jpeg
 
     monkeypatch.setattr("fridge.camera.capture_snapshot", fake_capture)
@@ -95,6 +84,29 @@ def test_probe_camera_uses_configured_url(monkeypatch):
     assert result["online"] is True
     assert result["width"] == 64
     assert seen[0] == ["rtsp://192.168.100.1:8080/?action=stream"]
+
+
+def test_configured_stream_urls_prefers_saved_rtsp():
+    from fridge.camera import configured_stream_urls
+
+    urls = configured_stream_urls(
+        {
+            "stream_url": "rtsp://192.168.100.1:8080/?action=stream",
+            "snapshot_url": "rtsp://192.168.100.1:8080/?action=stream",
+        }
+    )
+    assert urls == ["rtsp://192.168.100.1:8080/?action=stream"]
+
+
+def test_merge_camera_settings_overrides_form_values():
+    from fridge.camera import merge_camera_settings
+
+    merged = merge_camera_settings(
+        {"stream_url": "http://old", "camera_host": "192.168.1.1"},
+        {"stream_url": "http://192.168.100.1:8080/?action=stream", "camera_host": "192.168.100.1"},
+    )
+    assert merged["stream_url"] == "rtsp://192.168.100.1:8080/?action=stream"
+    assert merged["camera_host"] == "192.168.100.1"
 
 
 def test_grab_raw_http_frame_reads_jpeg(monkeypatch):
