@@ -34,7 +34,7 @@ def test_candidate_urls_include_alternates():
     urls = candidate_urls({"camera_host": "192.168.42.1", "stream_url": "", "snapshot_url": ""})
     assert any(u.startswith("rtsp://192.168.42.1:8080/") for u in urls)
     assert any("192.168.42.1:8080/?action=stream" in u for u in urls)
-    assert urls[0].startswith("http://") or "action=stream" in urls[0]
+    assert not any(u == "http://192.168.42.1:8080/?action=stream" for u in urls)
     assert len(urls) <= 60
 
     discovery = candidate_urls(
@@ -42,8 +42,23 @@ def test_candidate_urls_include_alternates():
         discovery=True,
         open_ports=[8080, 80],
     )
-    assert any(u == "rtsp://192.168.100.1:8080/" for u in discovery)
+    assert any(u == "rtsp://192.168.100.1:8080/?action=stream" for u in discovery)
+    assert not any(u == "http://192.168.100.1:8080/?action=stream" for u in discovery)
     assert len(discovery) <= 60
+
+
+def test_normalize_stream_url_action_stream():
+    from fridge.camera import normalize_stream_url
+
+    assert (
+        normalize_stream_url("http://192.168.100.1:8080/?action=stream")
+        == "rtsp://192.168.100.1:8080/?action=stream"
+    )
+    assert (
+        normalize_stream_url("rtsp://192.168.100.1:8080/?action=stream")
+        == "rtsp://192.168.100.1:8080/?action=stream"
+    )
+    assert normalize_stream_url("http://192.168.1.1/snapshot.jpg").startswith("http://")
 
 
 def test_grab_raw_http_frame_reads_jpeg(monkeypatch):

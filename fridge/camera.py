@@ -349,6 +349,62 @@ def _add_url(urls: list[str], url: str) -> None:
         urls.append(url)
 
 
+def normalize_stream_url(url: str) -> str:
+    """GoPlus CamPro serves ?action=stream over RTSP, not HTTP."""
+    value = (url or "").strip()
+    if not value:
+        return value
+    parsed = urlparse(value)
+    if parsed.scheme.lower() != "http":
+        return value
+    path = parsed.path or "/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    path_q = f"{path}{query}".lower()
+    if "action=stream" not in path_q and "action=snapshot" not in path_q:
+        return value
+    port = parsed.port or 80
+    if port not in {80, 8080, 8081, 8082}:
+        return value
+    host = parsed.hostname or ""
+    if not host:
+        return value
+    rtsp_port = port if port != 80 else 8080
+    return f"rtsp://{host}:{rtsp_port}{path}{query}"
+
+
+def _url_probe_rank(url: str) -> tuple[int, int]:
+    lower = url.lower()
+    if lower.startswith("rtsp://") and "action=stream" in lower:
+        return (0, len(url))
+    if lower.startswith("rtsp://"):
+        return (1, len(url))
+    if "action=stream" in lower or "action=snapshot" in lower:
+        return (8, len(url))
+    return (4, len(url))
+
+
+def _skip_http_probe(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "http":
+        return False
+    path = parsed.path or "/"
+    query = f"?{parsed.query}" if parsed.query else ""
+    path_q = f"{path}{query}".lower()
+    if "action=stream" not in path_q and "action=snapshot" not in path_q:
+        return False
+    port = parsed.port or 80
+    return port in {80, 8080, 8081, 8082}
+
+
+def _pick_best_stream(found: list[dict[str, object]]) -> dict[str, object] | None:
+    if not found:
+        return None
+    for hit in found:
+        if hit.get("protocol") == "rtsp":
+            return hit
+    return found[0]
+
+
 def _normalize_host(value: str) -> str:
     value = (value or "").strip()
     if not value:
@@ -410,7 +466,7 @@ def _finalize_urls(urls: list[str], limit: int = 60, rtsp_keep: int = 12) -> lis
     keep_rtsp = min(rtsp_keep, len(rtsp))
     keep_http = max(0, limit - keep_rtsp)
     merged: list[str] = []
-    for url in http[:keep_http] + rtsp[:keep_rtsp]:
+    for url in rtsp[:keep_rtsp] + http[:keep_http]:
         _add_url(merged, url)
     return merged
 
@@ -439,6 +495,8 @@ def candidate_urls(
                 if port in {554, 1935, 8554}:
                     continue
                 for path in paths:
+                    if path in GENERALPLUS_PATHS and port in {8080, 8081, 8082}:
+                        continue
                     _add_url(urls, f"http://{hostname}:{port}{path}")
 
     if hostname:
@@ -480,7 +538,7 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
     tip = ""
     if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
         tip = " Для RTSP установите ffmpeg: brew install ffmpeg."
-        raise RuntimeError(
+    raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
         "RTSP: rtsp://192.168.100.1:8080/?action=stream "
         f"(ffprobe уже показал mjpeg — проверьте URL в настройках).{wake_note}{tip} {detail}"
@@ -540,14 +598,24 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
     with activated_camera(settings) as wake:
         open_ports = scan_open_ports(hostname)
         urls = candidate_urls(settings, discovery=True, open_ports=open_ports or [8080, 554, 6666])
-        urls.sort(key=lambda u: (1 if u.lower().startswith("rtsp://") else 0, len(u)))
+        urls.sort(key=_url_probe_rank)
         found: list[dict[str, object]] = []
         tried = 0
 
-        http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:24]
         rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:16]
+        http_urls = [
+            u for u in urls if not u.lower().startswith("rtsp://") and not _skip_http_probe(u)
+        ][:24]
 
-        if http_urls:
+        for url in rtsp_urls:
+            tried += 1
+            hit = _probe_one(url)
+            if hit:
+                found.append(hit)
+                if len(found) >= limit:
+                    break
+
+        if len(found) < limit and http_urls:
             with ThreadPoolExecutor(max_workers=6) as pool:
                 futures = {pool.submit(_probe_one, url): url for url in http_urls}
                 try:
@@ -564,25 +632,21 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
                     for future in futures:
                         future.cancel()
 
-        if len(found) < limit:
-            for url in rtsp_urls:
-                tried += 1
-                hit = _probe_one(url)
-                if hit:
-                    found.append(hit)
-                    if len(found) >= limit:
-                        break
-
-    best = found[0] if found else None
+    best = _pick_best_stream(found)
     suggestion = None
     if best:
         host_name = best["host"]
         port = best["port"]
+        stream_url = normalize_stream_url(str(best["url"]))
         suggestion = {
             "camera_host": f"{host_name}:{port}" if port not in (80, None) else str(host_name),
-            "stream_url": best["url"],
-            "snapshot_url": best["url"],
+            "stream_url": stream_url,
+            "snapshot_url": stream_url,
         }
+        existing = (settings.get("stream_url") or "").strip()
+        if existing.lower().startswith("rtsp://") and stream_url.lower().startswith("http://"):
+            suggestion["stream_url"] = existing
+            suggestion["snapshot_url"] = settings.get("snapshot_url") or existing
 
     if found:
         message = (
@@ -601,7 +665,7 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
         message = (
             f"На {hostname} открыты порты {open_ports}. {wake_note} "
             "После preview поток обычно на "
-            "http://192.168.100.1:8080/?action=stream."
+            "rtsp://192.168.100.1:8080/?action=stream."
         )
     else:
         message = f"Хост {hostname} не отвечает. Проверьте Wi‑Fi ActionCam."

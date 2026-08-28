@@ -72,6 +72,7 @@ def test_settings_roundtrip(client):
     assert res.status_code == 200
     body = res.json()
     assert body["camera_host"] == "192.168.25.1"
+    assert body["stream_url"] == "rtsp://192.168.25.1:8080/?action=stream"
     assert body["food_only"] == "0"
     assert body["confidence"] == "0.4"
 

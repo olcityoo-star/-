@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fridge import db
-from fridge.camera import capture_snapshot, discover_streams, probe_camera, wake_camera
+from fridge.camera import capture_snapshot, discover_streams, normalize_stream_url, probe_camera, wake_camera
 from fridge.config import CAPTURES_DIR, STATIC_DIR
 from fridge.dataset import add_sample, add_samples_from_scan, dataset_stats, delete_label
 from fridge.detect import detect_image, detector_status, ensure_model
@@ -160,6 +160,9 @@ def put_settings(payload: SettingsIn) -> dict:
     for flag in ("food_only", "use_custom"):
         if flag in values:
             values[flag] = "1" if str(values[flag]).lower() not in {"0", "false", "off"} else "0"
+    for key in ("stream_url", "snapshot_url"):
+        if key in values and values[key] is not None:
+            values[key] = normalize_stream_url(str(values[key]))
     with db.session() as conn:
         return db.update_settings(conn, values)
 

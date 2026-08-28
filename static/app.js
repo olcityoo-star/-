@@ -363,9 +363,14 @@ function bind() {
       if (result.settings) {
         state.settings = result.settings;
         const form = $("#settingsForm");
+        const keepRtsp = (form.elements.stream_url.value || "").trim().toLowerCase().startsWith("rtsp://");
         for (const [key, value] of Object.entries(result.settings)) {
           const field = form.elements[key];
           if (!field) continue;
+          if (keepRtsp && (key === "stream_url" || key === "snapshot_url")) {
+            const next = String(value || "").trim().toLowerCase();
+            if (next.startsWith("http://")) continue;
+          }
           if (field.type === "checkbox") field.checked = value === "1" || value === true;
           else field.value = value;
         }
