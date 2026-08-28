@@ -44,8 +44,8 @@ rtsp://192.168.100.1:8080/?action=stream
 # RTSP-метаданные (TCP достаточно):
 ffprobe -rtsp_transport tcp -i "rtsp://192.168.100.1:8080/?action=stream"
 
-# Кадр с камеры — видео идёт RTP/UDP, нужен udp (не tcp):
-ffmpeg -rtsp_transport udp -stimeout 10000000 -analyzeduration 10M -probesize 10M \
+# Кадр с камеры — видео идёт RTP/UDP (ffmpeg 9: `-timeout`, не `-stimeout`):
+ffmpeg -rtsp_transport udp -timeout 10000000 -analyzeduration 10M -probesize 10M \
   -i "rtsp://192.168.100.1:8080/?action=stream" \
   -map 0:v:0 -frames:v 1 -an -y /tmp/cam.jpg
 

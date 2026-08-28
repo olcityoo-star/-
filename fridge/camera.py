@@ -203,11 +203,11 @@ def _rtsp_transports(url: str) -> tuple[str, ...]:
 def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
     with tempfile.TemporaryDirectory(prefix="fridge-rtsp-") as tmp:
         out = Path(tmp) / "frame.jpg"
-        stimeout_us = str(int(max(timeout, 8.0) * 1_000_000))
+        timeout_us = str(int(max(timeout, 8.0) * 1_000_000))
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-rtsp_transport", transport,
-            "-stimeout", stimeout_us,
+            "-timeout", timeout_us,
             "-analyzeduration", "10000000",
             "-probesize", "10000000",
             "-i", url,
