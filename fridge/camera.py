@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+import platform
 import shutil
 import socket
+import struct
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from pathlib import Path
@@ -50,18 +54,24 @@ EXTRA_PATHS = (
 
 COMMON_PATHS = PRIORITY_PATHS + EXTRA_PATHS
 
+GENERALPLUS_PATHS = (
+    "/?action=stream",
+    "/?action=snapshot",
+)
+
 RTSP_PATHS = (
+    "/?action=stream",
     "/",
     "/live",
     "/stream",
     "/h264",
     "/video",
-    "/cam/realmonitor?channel=1&subtype=0",
-    "/Streaming/Channels/101",
     "/11",
     "/12",
     "/0",
     "/1",
+    "/cam/realmonitor?channel=1&subtype=0",
+    "/Streaming/Channels/101",
 )
 
 
@@ -83,29 +93,117 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
-    if not ffmpeg_available():
-        raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
+def wakeup_payload(sequence: int = 0) -> bytes:
+    """Magic ICMP payload used by GoPlus / Generalplus apps."""
+    number = 99 - (sequence % 100)
+    payload = f"{number:28d} bottles of beer on the wall".encode("ascii")
+    if len(payload) != 56:
+        raise ValueError(f"unexpected wakeup payload length: {len(payload)}")
+    return payload
+
+
+def _icmp_checksum(packet: bytes) -> int:
+    if len(packet) % 2:
+        packet += b"\x00"
+    total = sum(struct.unpack("!%dH" % (len(packet) // 2), packet))
+    total = (total >> 16) + (total & 0xFFFF)
+    total += total >> 16
+    return ~total & 0xFFFF
+
+
+def _send_icmp_wakeup(host: str, count: int = 3) -> dict[str, object]:
+    payload = wakeup_payload(0)
+    ident = os.getpid() & 0xFFFF
+    sent = 0
+    sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    try:
+        sock.settimeout(1.5)
+        for seq in range(count):
+            header = struct.pack("!BBHHH", 8, 0, 0, ident, seq)
+            checksum = _icmp_checksum(header + payload)
+            header = struct.pack("!BBHHH", 8, 0, checksum, ident, seq)
+            sock.sendto(header + payload, (host, 0))
+            sent += 1
+    finally:
+        sock.close()
+    return {"ok": True, "method": "raw_icmp", "sent": sent, "host": host}
+
+
+def _ping_fallback(host: str, count: int = 3) -> dict[str, object]:
+    args = ["ping", "-c", str(count), host]
+    if platform.system() == "Darwin":
+        args[1:1] = ["-W", "1000"]
+    else:
+        args[1:1] = ["-W", "1"]
+    try:
+        proc = subprocess.run(
+            args,
+            check=False,
+            capture_output=True,
+            timeout=max(8, count * 3),
+            text=True,
+        )
+        return {
+            "ok": proc.returncode == 0,
+            "method": "system_ping",
+            "sent": count,
+            "host": host,
+            "note": "без magic payload — если не сработает, запустите сервер через sudo",
+            "stderr": (proc.stderr or "")[:180],
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "method": "system_ping", "host": host, "error": str(exc)}
+
+
+def wake_camera(settings: dict[str, str], count: int = 3) -> dict[str, object]:
+    host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
+    hostname = host.split(":")[0]
+    try:
+        result = _send_icmp_wakeup(hostname, count=count)
+    except PermissionError:
+        result = _ping_fallback(hostname, count=count)
+    except OSError as exc:
+        result = {"ok": False, "method": "raw_icmp", "host": hostname, "error": str(exc)}
+        fallback = _ping_fallback(hostname, count=count)
+        if fallback.get("ok"):
+            result = fallback
+    if result.get("ok"):
+        time.sleep(0.35)
+    return result
+
+
+def _grab_rtsp_frame(url: str, timeout: float, transport: str) -> bytes:
     with tempfile.TemporaryDirectory(prefix="fridge-rtsp-") as tmp:
         out = Path(tmp) / "frame.jpg"
         cmd = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-rtsp_transport", "tcp",
+            "-rtsp_transport", transport,
             "-i", url,
             "-frames:v", "1",
             "-q:v", "2",
             "-y", str(out),
         ]
-        try:
-            subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(f"RTSP таймаут: {url}") from exc
-        except subprocess.CalledProcessError as exc:
-            err = (exc.stderr or b"").decode("utf-8", errors="replace")[:240]
-            raise RuntimeError(f"RTSP ошибка ({url}): {err or exc}") from exc
+        subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
         if not out.exists() or out.stat().st_size < 100:
             raise RuntimeError(f"RTSP не вернул кадр: {url}")
         return out.read_bytes()
+
+
+def grab_rtsp_frame(url: str, timeout: float = 8.0) -> bytes:
+    if not ffmpeg_available():
+        raise RuntimeError("Для RTSP нужен ffmpeg. На Mac: brew install ffmpeg")
+    last_error: Exception | None = None
+    for transport in ("tcp", "udp"):
+        try:
+            return _grab_rtsp_frame(url, timeout=timeout, transport=transport)
+        except subprocess.TimeoutExpired:
+            last_error = RuntimeError(f"RTSP таймаут ({transport}): {url}")
+        except subprocess.CalledProcessError as exc:
+            err = (exc.stderr or b"").decode("utf-8", errors="replace")[:240]
+            last_error = RuntimeError(f"RTSP ошибка ({transport}, {url}): {err or exc}")
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+    raise last_error or RuntimeError(f"RTSP недоступен: {url}")
 
 
 def grab_mjpeg_frame(url: str, timeout: float = 3.5) -> bytes:
@@ -258,6 +356,19 @@ def rtsp_candidate_urls(hostname: str, open_ports: list[int] | None = None) -> l
     return urls
 
 
+def _finalize_urls(urls: list[str], limit: int = 60, rtsp_keep: int = 12) -> list[str]:
+    if len(urls) <= limit:
+        return urls
+    rtsp = [u for u in urls if u.lower().startswith("rtsp://")]
+    http = [u for u in urls if not u.lower().startswith("rtsp://")]
+    keep_rtsp = min(rtsp_keep, len(rtsp))
+    keep_http = max(0, limit - keep_rtsp)
+    merged: list[str] = []
+    for url in http[:keep_http] + rtsp[:keep_rtsp]:
+        _add_url(merged, url)
+    return merged
+
+
 def candidate_urls(
     settings: dict[str, str],
     *,
@@ -270,12 +381,8 @@ def candidate_urls(
 
     host = _normalize_host(settings.get("camera_host") or "")
     hostname = host.split(":")[0] if host else ""
-    paths = PRIORITY_PATHS if discovery else COMMON_PATHS
+    paths = GENERALPLUS_PATHS + (PRIORITY_PATHS if discovery else COMMON_PATHS)
     ports = open_ports or list(COMMON_PORTS)
-
-    if hostname:
-        for url in rtsp_candidate_urls(hostname, open_ports):
-            _add_url(urls, url)
 
     if host:
         if ":" in host and not open_ports:
@@ -288,18 +395,23 @@ def candidate_urls(
                 for path in paths:
                     _add_url(urls, f"http://{hostname}:{port}{path}")
 
+    if hostname:
+        for url in rtsp_candidate_urls(hostname, open_ports):
+            _add_url(urls, url)
+
     if discovery and hostname:
         for other in COMMON_HOSTS[:2]:
             if other == hostname:
                 continue
             for url in rtsp_candidate_urls(other, [8080, 554])[:6]:
                 _add_url(urls, url)
-        return urls[:60]
+        return _finalize_urls(urls, limit=60)
 
-    return urls[:30]
+    return _finalize_urls(urls, limit=60)
 
 
 def capture_snapshot(settings: dict[str, str]) -> bytes:
+    wake = wake_camera(settings)
     errors: list[str] = []
     urls = candidate_urls(settings, discovery=False)
     last_error: Exception | None = None
@@ -312,13 +424,21 @@ def capture_snapshot(settings: dict[str, str]) -> bytes:
             errors.append(f"{url}: {exc}")
 
     detail = "; ".join(errors[:5]) if errors else "нет URL камеры"
+    wake_note = ""
+    if not wake.get("ok"):
+        wake_note = (
+            " Пробуждение ICMP не удалось — попробуйте "
+            "sudo uvicorn fridge.main:app --host 0.0.0.0 --port 8000 "
+            "или откройте GoPlus CamPro на телефоне."
+        )
     tip = ""
     if not ffmpeg_available() and any(u.startswith("rtsp://") for u in urls):
-        tip = " Установите ffmpeg: brew install ffmpeg."
+        tip = " Для RTSP установите ffmpeg: brew install ffmpeg."
     raise RuntimeError(
         "Не удалось получить снимок с ActionCam / GoPlus CamPro. "
-        "PCAPdroid показал RTSP на :8080 — укажите rtsp://192.168.100.1:8080/ "
-        f"и нажмите «Найти поток».{tip} {detail}"
+        "Сначала нужен ICMP wakeup, затем HTTP MJPEG: "
+        "http://192.168.100.1:8080/?action=stream — "
+        f"нажмите «Найти поток».{wake_note}{tip} {detail}"
     ) from last_error
 
 
@@ -371,24 +491,17 @@ def _probe_one(url: str) -> dict[str, object] | None:
 def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, object]:
     host = _normalize_host(settings.get("camera_host") or "") or "192.168.100.1"
     hostname = host.split(":")[0]
+    wake = wake_camera(settings)
     open_ports = scan_open_ports(hostname)
     urls = candidate_urls(settings, discovery=True, open_ports=open_ports or [8080, 554])
-    urls.sort(key=lambda u: (0 if u.lower().startswith("rtsp://") else 1, len(u)))
+    urls.sort(key=lambda u: (1 if u.lower().startswith("rtsp://") else 0, len(u)))
     found: list[dict[str, object]] = []
     tried = 0
 
-    rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:12]
-    http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:20]
+    http_urls = [u for u in urls if not u.lower().startswith("rtsp://")][:24]
+    rtsp_urls = [u for u in urls if u.lower().startswith("rtsp://")][:16]
 
-    for url in rtsp_urls:
-        tried += 1
-        hit = _probe_one(url)
-        if hit:
-            found.append(hit)
-            if len(found) >= limit:
-                break
-
-    if len(found) < limit and http_urls:
+    if http_urls:
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {pool.submit(_probe_one, url): url for url in http_urls}
             try:
@@ -404,6 +517,15 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
             finally:
                 for future in futures:
                     future.cancel()
+
+    if len(found) < limit:
+        for url in rtsp_urls:
+            tried += 1
+            hit = _probe_one(url)
+            if hit:
+                found.append(hit)
+                if len(found) >= limit:
+                    break
 
     best = found[0] if found else None
     suggestion = None
@@ -422,11 +544,15 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
             f"Открытые порты: {open_ports or '—'}"
         )
     elif open_ports:
+        wake_note = "ICMP wakeup отправлен." if wake.get("ok") else (
+            "ICMP wakeup не удался — запустите сервер через sudo или откройте GoPlus CamPro."
+        )
         ff = "ffmpeg установлен" if ffmpeg_available() else "ffmpeg НЕ установлен (brew install ffmpeg)"
         message = (
-            f"На {hostname} открыты порты {open_ports}. "
-            f"HTTP пустой, пробуем RTSP — {ff}. "
-            "Поставьте rtsp://192.168.100.1:8080/ и снова «Найти поток»."
+            f"На {hostname} открыты порты {open_ports}. {wake_note} "
+            "GoPlus CamPro обычно отдаёт MJPEG: "
+            "http://192.168.100.1:8080/?action=stream. "
+            f"RTSP без wakeup даёт 404 — {ff}."
         )
     else:
         message = f"Хост {hostname} не отвечает. Проверьте Wi‑Fi ActionCam."
@@ -437,6 +563,7 @@ def discover_streams(settings: dict[str, str], limit: int = 4) -> dict[str, obje
         "open_ports": open_ports,
         "host": hostname,
         "ffmpeg": ffmpeg_available(),
+        "wake": wake,
         "suggestion": suggestion,
         "message": message,
     }

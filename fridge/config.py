@@ -14,9 +14,9 @@ STATIC_DIR = ROOT / "static"
 
 CAMERA_NAME = "ActionCam_f8160c0282c2"
 CAMERA_HOST = "192.168.100.1"
-# PCAPdroid shows GoPlus CamPro using RTSP on port 8080 (not HTTP MJPEG).
-STREAM_URL = f"rtsp://{CAMERA_HOST}:8080/"
-SNAPSHOT_URL = f"rtsp://{CAMERA_HOST}:8080/"
+# Generalplus / GoPlus CamPro: ICMP wakeup, then MJPEG over HTTP on :8080.
+STREAM_URL = f"http://{CAMERA_HOST}:8080/?action=stream"
+SNAPSHOT_URL = f"http://{CAMERA_HOST}:8080/?action=snapshot"
 
 # Official Ultralytics nano weights (ONNX). Downloaded on first scan if missing.
 MODEL_URLS = [

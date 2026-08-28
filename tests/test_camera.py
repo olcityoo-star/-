@@ -1,4 +1,4 @@
-from fridge.camera import extract_jpeg, grab_raw_http_frame
+from fridge.camera import extract_jpeg, grab_raw_http_frame, wakeup_payload, wake_camera
 
 
 def test_extract_jpeg_from_mjpeg_blob():
@@ -11,13 +11,31 @@ def test_extract_jpeg_missing():
     assert extract_jpeg(b"not an image") is None
 
 
+def test_wakeup_payload_length():
+    payload = wakeup_payload(0)
+    assert len(payload) == 56
+    assert b"99 bottles of beer on the wall" in payload
+
+
+def test_wake_camera_uses_ping_fallback(monkeypatch):
+    monkeypatch.setattr("fridge.camera._send_icmp_wakeup", lambda *_a, **_k: (_ for _ in ()).throw(PermissionError()))
+    monkeypatch.setattr(
+        "fridge.camera._ping_fallback",
+        lambda host, count=3: {"ok": True, "method": "system_ping", "host": host, "sent": count},
+    )
+    result = wake_camera({"camera_host": "192.168.100.1"})
+    assert result["ok"] is True
+    assert result["method"] == "system_ping"
+
+
 def test_candidate_urls_include_alternates():
     from fridge.camera import candidate_urls
 
     urls = candidate_urls({"camera_host": "192.168.42.1", "stream_url": "", "snapshot_url": ""})
     assert any(u.startswith("rtsp://192.168.42.1:8080/") for u in urls)
     assert any("192.168.42.1:8080/?action=stream" in u for u in urls)
-    assert len(urls) <= 30
+    assert urls[0].startswith("http://") or "action=stream" in urls[0]
+    assert len(urls) <= 60
 
     discovery = candidate_urls(
         {"camera_host": "192.168.100.1", "stream_url": "", "snapshot_url": ""},

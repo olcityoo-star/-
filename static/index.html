@@ -119,11 +119,11 @@
       <label>IP / хост
         <input name="camera_host" placeholder="192.168.100.1">
       </label>
-      <label>Поток (RTSP/HTTP)
-        <input name="stream_url" placeholder="rtsp://192.168.100.1:8080/">
+      <label>Поток (HTTP/RTSP)
+        <input name="stream_url" placeholder="http://192.168.100.1:8080/?action=stream">
       </label>
       <label>Снимок / тот же поток
-        <input name="snapshot_url" placeholder="rtsp://192.168.100.1:8080/">
+        <input name="snapshot_url" placeholder="http://192.168.100.1:8080/?action=snapshot">
       </label>
       <label>Порог YOLO
         <input name="confidence" type="number" min="0.05" max="0.95" step="0.05">
@@ -142,11 +142,15 @@
       </div>
     </form>
     <p class="help">
-      PCAPdroid показал: GoPlus CamPro ходит на камеру по <strong>RTSP :8080</strong>, не по HTTP.
-      Установите <span class="mono">brew install ffmpeg</span>, в потоке укажите
-      <span class="mono">rtsp://192.168.100.1:8080/</span>, затем <strong>«Найти поток»</strong>.
-      Если путь другой — «Найти поток» переберёт типовые RTSP URL.
-      Пока поток не найден, работает <strong>«Загрузить фото»</strong>.
+      GoPlus CamPro (Generalplus) <strong>не отдаёт поток сразу</strong>: приложение сначала шлёт
+      ICMP «99 bottles of beer on the wall», потом открывает
+      <span class="mono">http://192.168.100.1:8080/?action=stream</span>.
+      Сервер делает wakeup автоматически при «Найти поток» / «Проверить камеру».
+      RTSP на :8080 в PCAPdroid — это внутренний протокол приложения; без wakeup
+      <span class="mono">ffprobe rtsp://…</span> даёт <strong>404</strong>.
+      Если не работает — запустите сервер через <span class="mono">sudo uvicorn …</span>
+      или откройте GoPlus CamPro на телефоне. Пока поток не найден, работает
+      <strong>«Загрузить фото»</strong>.
     </p>
   </section>
 

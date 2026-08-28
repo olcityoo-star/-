@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from fridge import db
-from fridge.camera import capture_snapshot, discover_streams, probe_camera
+from fridge.camera import capture_snapshot, discover_streams, probe_camera, wake_camera
 from fridge.config import CAPTURES_DIR, STATIC_DIR
 from fridge.dataset import add_sample, add_samples_from_scan, dataset_stats, delete_label
 from fridge.detect import detect_image, detector_status, ensure_model
@@ -214,6 +214,13 @@ def camera_status() -> dict:
         "snapshot_url": settings.get("snapshot_url"),
     }
     return probe
+
+
+@app.post("/api/camera/wake")
+def camera_wake() -> dict:
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+    return wake_camera(settings)
 
 
 @app.post("/api/camera/discover")

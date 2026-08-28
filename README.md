@@ -32,22 +32,33 @@ uvicorn fridge.main:app --host 0.0.0.0 --port 8000
 
 SSID `ActionCam_f8160c0282c2`, gateway `192.168.100.1`.
 
-PCAPdroid показывает **RTSP на порту 8080** (HTTP MJPEG пустой).
+Камера Generalplus **спит**, пока приложение не «разбудит» её ICMP-пакетом с текстом
+`99 bottles of beer on the wall`. После этого поток обычно доступен по HTTP MJPEG:
 
 ```bash
-brew install ffmpeg
-# в интерфейсе:
-# поток = rtsp://192.168.100.1:8080/
+# поток = http://192.168.100.1:8080/?action=stream
+# снимок = http://192.168.100.1:8080/?action=snapshot
 ```
 
-Проверка вручную:
+Проверка вручную (Mac, подключены к Wi‑Fi камеры):
 
 ```bash
-ffprobe -rtsp_transport tcp -i rtsp://192.168.100.1:8080/
-ffmpeg -rtsp_transport tcp -i rtsp://192.168.100.1:8080/ -frames:v 1 -y /tmp/cam.jpg
+ping -c 3 192.168.100.1
+curl -m 5 "http://192.168.100.1:8080/?action=stream" -o /tmp/cam.bin
+xxd /tmp/cam.bin | head
 ```
 
-Если путь другой — кнопка «Найти поток» переберёт типовые RTSP URL.
+Если `curl` всё ещё «Empty reply» — откройте GoPlus CamPro на телефоне (preview),
+затем повторите `curl`. RTSP `404` без wakeup — нормально: PCAPdroid видит RTSP
+только когда приложение уже разбудило камеру.
+
+Сервер шлёт wakeup сам при «Найти поток» / «Проверить камеру». Если не помогает,
+запустите с правами на ICMP:
+
+```bash
+sudo uvicorn fridge.main:app --host 0.0.0.0 --port 8000
+```
+
 Пока поток не найден, используйте **«Загрузить фото»**.
 
 ## Тесты
