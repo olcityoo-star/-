@@ -17,6 +17,7 @@ DISCOVERY_REQUEST = 0x0114
 START_PREVIEW = 0x01FF
 
 DEFAULT_PORT = 6666
+CONTROL_PORTS = (6666, 6668, 6688, 7777)
 DEFAULT_USERNAME = "admin"
 DEFAULT_PASSWORD = "12345"
 DISCOVERY_PORTS = (22600, 21600)
@@ -148,29 +149,38 @@ def udp_discover(timeout: float = 2.0) -> dict[str, object]:
 
 def start_preview_session(
     host: str,
-    port: int = DEFAULT_PORT,
+    port: int | None = None,
     username: str = DEFAULT_USERNAME,
     password: str = DEFAULT_PASSWORD,
 ) -> tuple[GoPlusSession | None, dict[str, object]]:
-    session = GoPlusSession(host, port=port, username=username, password=password)
-    result = session.activate()
-    if not result.get("ok"):
+    ports = (port,) if port is not None else CONTROL_PORTS
+    last: dict[str, object] = {"ok": False, "method": "tcp_control", "host": host, "error": "no ports tried"}
+    for candidate in ports:
+        session = GoPlusSession(host, port=candidate, username=username, password=password)
+        result = session.activate()
+        result["port"] = candidate
+        if result.get("ok"):
+            return session, result
+        last = result
         session.close()
-        return None, result
-    return session, result
+    return None, last
 
 
 def main() -> None:
     import sys
 
     host = sys.argv[1] if len(sys.argv) > 1 else "192.168.100.1"
-    print(f"Trying GoPlus TCP preview on {host}:{DEFAULT_PORT} ...")
+    print(f"Trying GoPlus TCP preview on {host} ports {CONTROL_PORTS} ...")
     session, result = start_preview_session(host)
     print(result)
     if session:
-        print("Preview session active for 5s — try curl http://192.168.100.1:8080/?action=stream")
+        print("Preview session active for 5s — try:")
+        print(f"  curl -m 5 \"http://{host}:8080/?action=stream\" -o /tmp/cam.bin")
         time.sleep(5)
         session.close()
+    else:
+        print("TCP control недоступен на этой камере.")
+        print("Запустите: python -m fridge.cam_diag", host)
 
 
 if __name__ == "__main__":
